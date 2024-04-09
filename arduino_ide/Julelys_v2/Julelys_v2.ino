@@ -17,8 +17,8 @@ bool imageHaveChange = false;
 
 LiquidCrystal_I2C LCD = LiquidCrystal_I2C(0x27, 16, 2);
 
-const char* ssid     = "Egernet WLAN";
-const char* password = "lille hvem";
+const char* ssid     = "*******";
+const char* password = "*******";
 
 WiFiServer server(80);
 

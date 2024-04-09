@@ -1,0 +1,59 @@
+{
+  "version": 1,
+  "author": "Christian Skaarup Enevoldsen",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-c3-devkitm-1",
+      "id": "esp",
+      "top": -0.3,
+      "left": -3.78,
+      "attrs": { "builder": "esp-idf" }
+    },
+    { "type": "wokwi-led", "id": "led1", "top": -80.4, "left": 167, "attrs": { "color": "red" } },
+    {
+      "type": "wokwi-led",
+      "id": "led2",
+      "top": -80.4,
+      "left": 205.4,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-led",
+      "id": "led3",
+      "top": -80.4,
+      "left": 243.8,
+      "attrs": { "color": "red" }
+    },
+    {
+      "type": "wokwi-led-ring",
+      "id": "ring1",
+      "top": -133.76,
+      "left": -219.61,
+      "attrs": { "pixels": "16" }
+    },
+    {
+      "type": "wokwi-neopixel-meter",
+      "id": "meter1",
+      "top": -230.4,
+      "left": -67.2,
+      "attrs": { "pixels": "16" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "led1:C", "esp:GND.10", "green", [ "v0" ] ],
+    [ "esp:8", "led1:A", "green", [ "h0" ] ],
+    [ "led2:C", "esp:GND.10", "green", [ "v57.6", "h-47.6" ] ],
+    [ "led2:A", "esp:7", "green", [ "v0" ] ],
+    [ "led3:C", "esp:GND.10", "green", [ "v0" ] ],
+    [ "led3:A", "esp:6", "green", [ "v0" ] ],
+    [ "esp:3", "ring1:DIN", "green", [ "h0" ] ],
+    [ "ring1:VCC", "esp:5V.1", "red", [ "v0" ] ],
+    [ "esp:GND.5", "ring1:GND", "black", [ "h0" ] ]
+  ],
+  "dependencies": {}
+}

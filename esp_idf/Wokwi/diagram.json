@@ -1,0 +1,75 @@
+{
+  "version": 1,
+  "author": "Christian Skaarup Enevoldsen",
+  "editor": "wokwi",
+  "parts": [
+    {
+      "type": "board-esp32-c3-devkitm-1",
+      "id": "esp",
+      "top": 230.1,
+      "left": 34.62,
+      "attrs": { "builder": "esp-idf" }
+    },
+    {
+      "type": "wokwi-neopixel-meter",
+      "id": "meter1",
+      "top": 9.6,
+      "left": -249.6,
+      "attrs": { "pixels": "16" }
+    },
+    { "type": "board-cd74hc4067", "id": "mux1", "top": 53.25, "left": 52.69, "attrs": {} },
+    {
+      "type": "wokwi-led-ring",
+      "id": "ring1",
+      "top": -454.78,
+      "left": -471.32,
+      "attrs": { "pixels": "55" }
+    },
+    {
+      "type": "wokwi-led-ring",
+      "id": "ring2",
+      "top": -454.78,
+      "left": -39.32,
+      "attrs": { "pixels": "55" }
+    },
+    {
+      "type": "wokwi-led-ring",
+      "id": "ring3",
+      "top": -454.78,
+      "left": 440.68,
+      "attrs": { "pixels": "55" }
+    },
+    {
+      "type": "wokwi-lcd1602",
+      "id": "lcd1",
+      "top": 419.2,
+      "left": 63.2,
+      "attrs": { "pins": "i2c" }
+    }
+  ],
+  "connections": [
+    [ "esp:TX", "$serialMonitor:RX", "", [] ],
+    [ "esp:RX", "$serialMonitor:TX", "", [] ],
+    [ "ring1:DIN", "mux1:I0", "green", [ "v0" ] ],
+    [ "mux1:I1", "ring2:DIN", "green", [ "h-76.8", "v-163.2", "h115.2" ] ],
+    [ "mux1:I2", "ring3:DIN", "green", [ "h-67.2", "v-144", "h268.8" ] ],
+    [ "ring1:GND", "ring2:GND", "black", [ "v38.4", "h153.6" ] ],
+    [ "ring3:GND", "ring2:GND", "black", [ "v38.4", "h-144" ] ],
+    [ "ring3:GND", "mux1:GND", "black", [ "v0" ] ],
+    [ "ring1:VCC", "ring2:VCC", "red", [ "v28.8", "h28.8" ] ],
+    [ "ring2:VCC", "ring3:VCC", "red", [ "v28.8", "h144" ] ],
+    [ "ring3:VCC", "mux1:VCC", "red", [ "v0" ] ],
+    [ "esp:10", "mux1:COM", "green", [ "v0", "h-38.4", "v-124.8", "h211.2", "v-105.6" ] ],
+    [ "esp:6", "mux1:S0", "green", [ "h16.78", "v-19.2" ] ],
+    [ "esp:7", "mux1:S1", "green", [ "h35.98", "v-182.4", "h0", "v-9.6" ] ],
+    [ "esp:8", "mux1:S2", "green", [ "h55.18", "v-182.4" ] ],
+    [ "esp:GND.10", "mux1:GND", "black", [ "h122.38", "v-86.4" ] ],
+    [ "esp:5V.1", "mux1:VCC", "red", [ "h-57.6", "v-153.6", "h153.6", "v-9.6" ] ],
+    [ "lcd1:GND", "esp:GND.5", "black", [ "h-48", "v-67.2" ] ],
+    [ "esp:5V.2", "lcd1:VCC", "red", [ "h-38.4", "v28.8" ] ],
+    [ "lcd1:SDA", "esp:1", "green", [ "h-134.4", "v-95.8" ] ],
+    [ "lcd1:SCL", "esp:2", "green", [ "h-144", "v-9.3" ] ],
+    [ "mux1:EN", "mux1:VCC", "green", [ "h19.23", "v0", "h9.6", "v9.6" ] ]
+  ],
+  "dependencies": {}
+}
