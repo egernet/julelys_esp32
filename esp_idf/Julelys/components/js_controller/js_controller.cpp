@@ -5,8 +5,6 @@
 
 #include "elk.h"
 
-#include "led_strip.h"
-
 #include <esp_timer.h>
 
 #include "led_controller.h"

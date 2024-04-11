@@ -11,42 +11,38 @@
 
 #include "sdkconfig.h"
 
-#include "elk.h"
-
-#include <esp_wifi.h>
-#include <esp_netif.h>
+#include "esp_log.h"
+#include "esp_console.h"
+#include "driver/uart.h"
+#include "linenoise/linenoise.h"
+#include "argtable3/argtable3.h"
 
 #include <esp_heap_caps.h>
+
+#include "esp_vfs_dev.h"
+#include "esp_vfs_fat.h"
+#include "nvs.h"
+#include "nvs_flash.h"
 
 #include "js_string.h"
 
 #include "led_controller.h"
 #include "js_controller.h"
 #include "settings_controller.h"
-
-#include "driver/uart.h"
-#include "driver/gpio.h"
+#include "cmd_wifi.h"
 
 #include "iot_button.h"
 #include "button_gpio.h"
 
 static const char TAG[] = "Jylelys";
 
-#ifndef IP4ADDR_STRLEN_MAX
-#define IP4ADDR_STRLEN_MAX  16
-#endif
-
-#define TXD_PIN (GPIO_NUM_17)
-#define RXD_PIN (GPIO_NUM_16)
-#define BUF_SIZE (1024)
+#define PROMPT_STR "julelys"
 
 LedController *ledController;
 SettingsController *settingsController;
 
 #define BUTTON_PIN GPIO_NUM_9
 #define LONG_PRESS_DELAY 10000
-
-static uint32_t button_press_time = 0;
 
 void button_single_click_cb(void *arg,void *usr_data) {
     ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
@@ -143,35 +139,199 @@ void js_sequence_task(void *pvParameter) {
     vTaskDelete( NULL );  
 }
 
-void init_uart() {
-    uart_config_t uart_config = {
-        .baud_rate = 9600,
-        .data_bits = UART_DATA_8_BITS,
-        .parity    = UART_PARITY_DISABLE,
-        .stop_bits = UART_STOP_BITS_1,
-        .flow_ctrl = UART_HW_FLOWCTRL_CTS_RTS,
-        .rx_flow_ctrl_thresh = 122,
+static void initialize_console(void)
+{
+    /* Drain stdout before reconfiguring it */
+    fflush(stdout);
+    fsync(fileno(stdout));
+
+    /* Disable buffering on stdin */
+    setvbuf(stdin, NULL, _IONBF, 0);
+
+    /* Minicom, screen, idf_monitor send CR when ENTER key is pressed */
+    esp_vfs_dev_uart_port_set_rx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_CR);
+    /* Move the caret to the beginning of the next line on '\n' */
+    esp_vfs_dev_uart_port_set_tx_line_endings(CONFIG_ESP_CONSOLE_UART_NUM, ESP_LINE_ENDINGS_CRLF);
+
+    /* Configure UART. Note that REF_TICK is used so that the baud rate remains
+     * correct while APB frequency is changing in light sleep mode.
+     */
+    const uart_config_t uart_config = {
+            .baud_rate = CONFIG_ESP_CONSOLE_UART_BAUDRATE,
+            .data_bits = UART_DATA_8_BITS,
+            .parity = UART_PARITY_DISABLE,
+            .stop_bits = UART_STOP_BITS_1,
+#if SOC_UART_SUPPORT_REF_TICK
+        .source_clk = UART_SCLK_REF_TICK,
+#elif SOC_UART_SUPPORT_XTAL_CLK
+        .source_clk = UART_SCLK_XTAL,
+#endif
     };
-    uart_param_config(UART_NUM_1, &uart_config);
-    uart_set_pin(UART_NUM_1, TXD_PIN, RXD_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
-    uart_driver_install(UART_NUM_1, BUF_SIZE * 2, 0, 0, NULL, 0);
+    /* Install UART driver for interrupt-driven reads and writes */
+    ESP_ERROR_CHECK( uart_driver_install(CONFIG_ESP_CONSOLE_UART_NUM,
+            256, 0, 0, NULL, 0) );
+    ESP_ERROR_CHECK( uart_param_config(CONFIG_ESP_CONSOLE_UART_NUM, &uart_config) );
+
+    /* Tell VFS to use UART driver */
+    esp_vfs_dev_uart_use_driver(CONFIG_ESP_CONSOLE_UART_NUM);
+
+    /* Initialize the console */
+    esp_console_config_t console_config = {
+            .max_cmdline_length = 256,
+            .max_cmdline_args = 8,
+#if CONFIG_LOG_COLORS
+            .hint_color = atoi(LOG_COLOR_CYAN)
+#endif
+    };
+    ESP_ERROR_CHECK( esp_console_init(&console_config) );
+
+    /* Configure linenoise line completion library */
+    /* Enable multiline editing. If not set, long commands will scroll within
+     * single line.
+     */
+    linenoiseSetMultiLine(1);
+
+    /* Tell linenoise where to get command completions and hints */
+    linenoiseSetCompletionCallback(&esp_console_get_completion);
+    linenoiseSetHintsCallback((linenoiseHintsCallback*) &esp_console_get_hint);
+
+    /* Set command history size */
+    linenoiseHistorySetMaxLen(100);
+
+    /* Set command maximum length */
+    linenoiseSetMaxLineLen(console_config.max_cmdline_length);
+
+    /* Don't return empty lines */
+    linenoiseAllowEmpty(false);
+
+#if CONFIG_STORE_HISTORY
+    /* Load command history from filesystem */
+    linenoiseHistoryLoad(HISTORY_PATH);
+#endif
 }
 
-void uart_task(void *arg) {
-    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
-    while (1) {
-        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_PERIOD_MS);
-        if (len > 0) {
-            uart_write_bytes(UART_NUM_1, (const char *) data, len);
-        }
-    }
-    free(data);
+void startupTasks() {
+    configure_button();
+
+    settingsController = new SettingsController();
+    ledController = new LedController(10, 1, 55);
+
+    xTaskCreate(
+    &led_sequence_task,
+    "led_sequence_task",
+    2048,
+    NULL,
+    5,
+    NULL);
+
+    xTaskCreate(
+    &free_memory,
+    "free_memory",
+    2048,
+    NULL,
+    1,
+    NULL);
+
+    xTaskCreate(
+    &js_sequence_task,
+    "js_sequence_task",
+    16384,
+    NULL,
+    5,
+    NULL);
 }
 
 extern "C" {
     void app_main();
 }
 
+void app_main(void)
+{
+    startupTasks();
+
+    // initialize_nvs();
+
+#if CONFIG_STORE_HISTORY
+    initialize_filesystem();
+    ESP_LOGI(TAG, "Command history enabled");
+#else
+    ESP_LOGI(TAG, "Command history disabled");
+#endif
+
+    initialize_console();
+
+    /* Register commands */
+    esp_console_register_help_command();
+    // register_system();
+    register_wifi();
+    // register_nvs();
+
+    /* Prompt to be printed before each line.
+     * This can be customized, made dynamic, etc.
+     */
+    const char* prompt = LOG_COLOR_I PROMPT_STR "> " LOG_RESET_COLOR;
+
+    printf("\n"
+           "This is an example of ESP-IDF console component.\n"
+           "Type 'help' to get the list of commands.\n"
+           "Use UP/DOWN arrows to navigate through command history.\n"
+           "Press TAB when typing command name to auto-complete.\n"
+           "Press Enter or Ctrl+C will terminate the console environment.\n");
+
+    /* Figure out if the terminal supports escape sequences */
+    int probe_status = linenoiseProbe();
+    if (probe_status) { /* zero indicates success */
+        printf("\n"
+               "Your terminal application does not support escape sequences.\n"
+               "Line editing and history features are disabled.\n"
+               "On Windows, try using Putty instead.\n");
+        linenoiseSetDumbMode(1);
+#if CONFIG_LOG_COLORS
+        /* Since the terminal doesn't support escape sequences,
+         * don't use color codes in the prompt.
+         */
+        prompt = PROMPT_STR "> ";
+#endif //CONFIG_LOG_COLORS
+    }
+
+    /* Main loop */
+    while(true) {
+        /* Get a line using linenoise.
+         * The line is returned when ENTER is pressed.
+         */
+        char* line = linenoise(prompt);
+        if (line == NULL) { /* Break on EOF or error */
+            break;
+        }
+        /* Add the command to the history if not empty*/
+        if (strlen(line) > 0) {
+            linenoiseHistoryAdd(line);
+#if CONFIG_STORE_HISTORY
+            /* Save command history to filesystem */
+            linenoiseHistorySave(HISTORY_PATH);
+#endif
+        }
+
+        /* Try to run the command */
+        int ret;
+        esp_err_t err = esp_console_run(line, &ret);
+        if (err == ESP_ERR_NOT_FOUND) {
+            printf("Unrecognized command\n");
+        } else if (err == ESP_ERR_INVALID_ARG) {
+            // command was empty
+        } else if (err == ESP_OK && ret != ESP_OK) {
+            printf("Command returned non-zero error code: 0x%x (%s)\n", ret, esp_err_to_name(ret));
+        } else if (err != ESP_OK) {
+            printf("Internal error: %s\n", esp_err_to_name(err));
+        }
+        /* linenoise allocates line buffer on the heap, so need to free it */
+        linenoiseFree(line);
+    }
+
+    ESP_LOGE(TAG, "Error or end-of-input, terminating console");
+    esp_console_deinit();
+}
+/*
 void app_main()
 {   
     settingsController = new SettingsController();
@@ -189,11 +349,14 @@ void app_main()
         5,
         NULL);
 
-        settingsController->saveConfig(512);
+        initialize_console();
+        console_task();
 
-        vTaskDelay(5000 / portTICK_PERIOD_MS);
+        //settingsController->saveConfig(512);
 
-        esp_restart();
+        //vTaskDelay(15000 / portTICK_PERIOD_MS);
+
+        //esp_restart();
     } else {
         configure_button();
 
@@ -225,3 +388,5 @@ void app_main()
         NULL);
     }   
 }
+
+*/
