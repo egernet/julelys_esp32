@@ -51,7 +51,7 @@
     [ "led2:A", "esp:7", "green", [ "v0" ] ],
     [ "led3:C", "esp:GND.10", "green", [ "v0" ] ],
     [ "led3:A", "esp:6", "green", [ "v0" ] ],
-    [ "esp:3", "ring1:DIN", "green", [ "h0" ] ],
+    [ "esp:10", "ring1:DIN", "green", [ "h0" ] ],
     [ "ring1:VCC", "esp:5V.1", "red", [ "v0" ] ],
     [ "esp:GND.5", "ring1:GND", "black", [ "h0" ] ]
   ],

@@ -1,5 +1,5 @@
 idf_component_register(
-    SRCS "elk.c" "main.cpp"
+    SRCS "elk.c" "main.cpp" "js_controller.cpp" "led_controller.cpp" "settings_controller.cpp"
     INCLUDE_DIRS "."
 )
 

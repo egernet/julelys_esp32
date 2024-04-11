@@ -16,98 +16,66 @@
 #include <esp_wifi.h>
 #include <esp_netif.h>
 
-#include "led_strip.h"
-
 #include <esp_heap_caps.h>
 
 #include "js_string.h"
 
-#include <esp_timer.h>
+#include "led_controller.h"
+#include "js_controller.h"
+#include "settings_controller.h"
 
-static const char TAG[] = "main";
+#include "driver/uart.h"
+#include "driver/gpio.h"
+
+#include "iot_button.h"
+#include "button_gpio.h"
+
+static const char TAG[] = "Jylelys";
 
 #ifndef IP4ADDR_STRLEN_MAX
 #define IP4ADDR_STRLEN_MAX  16
 #endif
 
-static led_strip_handle_t led_strip;
-static uint8_t s_led_state = 0;
+#define TXD_PIN (GPIO_NUM_17)
+#define RXD_PIN (GPIO_NUM_16)
+#define BUF_SIZE (1024)
 
-char jsBuf[16384];
+LedController *ledController;
+SettingsController *settingsController;
 
-void delay(int time) {
-    vTaskDelay(time / portTICK_PERIOD_MS);
+#define BUTTON_PIN GPIO_NUM_9
+#define LONG_PRESS_DELAY 10000
+
+static uint32_t button_press_time = 0;
+
+void button_single_click_cb(void *arg,void *usr_data) {
+    ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
 }
 
-jsval_t myDelay(struct js *js, jsval_t *args, int nargs) {
-    delay(js_getnum(args[0]));
+static void button_long_press_start_cb(void *arg,void *usr_data) {
+    settingsController->reset();
+    esp_restart();
+}
+
+void configure_button() {
+    button_config_t gpio_btn_cfg = {
+        .type = BUTTON_TYPE_GPIO,
+        .long_press_time = CONFIG_BUTTON_LONG_PRESS_TIME_MS,
+        .short_press_time = CONFIG_BUTTON_SHORT_PRESS_TIME_MS,
+        .gpio_button_config = {
+            .gpio_num = 9,
+            .active_level = 0,
+        },
+    };
     
-    return js_mknum(0);
-}
-
-jsval_t setPixelColor(struct js *js, jsval_t *args, int nargs) {
-    
-    uint32_t red = (uint32_t)js_getnum(args[0]);
-    uint32_t green = (uint32_t)js_getnum(args[1]);
-    uint32_t blue = (uint32_t)js_getnum(args[2]);
-    uint32_t white = (uint32_t)js_getnum(args[3]);
-    uint32_t x = (uint32_t)js_getnum(args[4]);
-    uint32_t y = (uint32_t)js_getnum(args[5]);
-
-    led_strip_set_pixel_rgbw(led_strip, x, red, green, blue, white);
-
-    //led_strip_set_pixel(led_strip, x, red, green, blue);
-
-    return js_mknum(0);
-}
-
-jsval_t updatePixels(struct js *js, jsval_t *args, int nargs) {
-    // printf("UpdatePixels\n");
-    led_strip_refresh(led_strip);
-    
-    return js_mknum(0);
-}
-
-static void blink_led(void)
-{
-    /* If the addressable LED is enabled */
-    if (s_led_state) {
-        /* Set the LED pixel using RGB from 0 (0%) to 255 (100%) for each color */
-        for (uint32_t i=0; i < 7 ; i++) {
-            led_strip_set_pixel_rgbw(led_strip, i, 255, 0, 0, 0);
-        }
-        /* Refresh the strip to send data */
-        led_strip_refresh(led_strip);
-    } else {
-        /* Set all LED off to clear all pixels */
-        led_strip_clear(led_strip);
+    button_handle_t gpio_btn = iot_button_create(&gpio_btn_cfg);
+    if(NULL == gpio_btn) {
+        ESP_LOGE(TAG, "Button create failed");
+        return;
     }
-}
 
-static void configure_led(uint32_t leds)
-{
-    ESP_LOGI(TAG, "Example configured to blink addressable LED!");
-    /* LED strip initialization with the GPIO and pixels number*/
-    led_strip_config_t strip_config = {
-        .strip_gpio_num = 10,
-        .max_leds = leds, // at least one LED on board
-        .led_pixel_format = LED_PIXEL_FORMAT_GRBW,
-        .led_model = LED_MODEL_SK6812,
-    };
-
-    // led_strip_config_t strip_config = {
-    //     .strip_gpio_num = 3,
-    //     .max_leds = leds
-    // };
-
-    led_strip_rmt_config_t rmt_config = {
-        .resolution_hz = 10 * 1000 * 1000, // 10MHz
-    };
-
-    ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
-
-    /* Set all LED off to clear all pixels */
-    led_strip_clear(led_strip);
+    iot_button_register_cb(gpio_btn, BUTTON_SINGLE_CLICK, button_single_click_cb, NULL);
+    iot_button_register_cb(gpio_btn, BUTTON_LONG_PRESS_START, button_long_press_start_cb, NULL);
 }
 
 void free_memory(void *pvParameter) {
@@ -115,7 +83,7 @@ void free_memory(void *pvParameter) {
         uint32_t freeHeapBytes = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
         printf("Free mem:%ld\n", freeHeapBytes);
 
-        vTaskDelay(1000 / portTICK_PERIOD_MS);
+        vTaskDelay(60000 / portTICK_PERIOD_MS);
     }
     vTaskDelete( NULL ); 
 }
@@ -142,94 +110,118 @@ void led_sequence_task(void *pvParameter) {
     vTaskDelete( NULL );  
 }
 
-struct js *run_leds_rain_setup(double matrixHeight, double matrixWidth, double start, double time, double last, double number) { 
-    struct js *jsEngine = js_create(jsBuf, sizeof(jsBuf));
-    jsval_t global = js_glob(jsEngine);
-    jsval_t matrix = js_mkobj(jsEngine);
-    jsval_t frame = js_mkobj(jsEngine);
+void led_setting_sequence_task(void *pvParameter) {
+    gpio_reset_pin(GPIO_NUM_8);
+    gpio_reset_pin(GPIO_NUM_7);
+    gpio_reset_pin(GPIO_NUM_6);
+    gpio_set_direction(GPIO_NUM_8, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_NUM_7, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_NUM_6, GPIO_MODE_OUTPUT);
 
-    js_set(jsEngine, global, "delay", js_mkfun(myDelay));
-    js_set(jsEngine, global, "setPixelColor", js_mkfun(setPixelColor));
-    js_set(jsEngine, global, "updatePixels", js_mkfun(updatePixels));
-    js_set(jsEngine, global, "matrix", matrix);
-    js_set(jsEngine, global, "frame", frame);
-    
-    js_set(jsEngine, matrix, "height", js_mknum(matrixHeight));
-    js_set(jsEngine, matrix, "width", js_mknum(matrixWidth));
+    gpio_set_level(GPIO_NUM_8, 0);
+    gpio_set_level(GPIO_NUM_7, 0);
+    gpio_set_level(GPIO_NUM_6, 0);
 
-    js_set(jsEngine, frame, "start", js_mknum(start));
-    js_set(jsEngine, frame, "time", js_mknum(time));
-    js_set(jsEngine, frame, "last", js_mknum(last));
-    js_set(jsEngine, frame, "number", js_mknum(number));
-
-    return jsEngine;
-}
-
-void run_leds_rain(struct js *jsEngine) { 
-    js_eval(jsEngine,
-            js_content,
-            ~0U);
-}
-
-void rainbow_sequence_task(void *pvParameter) {
-    printf("Start JS demo\n");
-
-    double matrixHeight = 55;
-    double matrixWidth = 1;
-
-    configure_led(matrixHeight);
-
-    double startTime = (double)esp_timer_get_time();
-    double lastTime = startTime;
-    double time = startTime;
-    double number = 0;
-    
-    
-
-    double fps = 30;
-    double n = startTime - lastTime;
-    double t = startTime - time;
-    double f = (1 / fps) * 1000;
-    double fn = t / f;
-    double tf = (t / 1000) * fps;
-    double mf = fn - tf;
-    //double number = 255 * (mf / fps);
-
-    number++;
-
-    while (1) {  
-        lastTime = time;
-        time = (double)esp_timer_get_time();
-        
-        struct js *jsEngine = run_leds_rain_setup(matrixHeight, matrixWidth, startTime, time, lastTime, number);  
-        run_leds_rain(jsEngine); 
+    while (1) {
+        gpio_set_level(GPIO_NUM_8, 1);     
+        vTaskDelay(300 / portTICK_PERIOD_MS);
+        gpio_set_level(GPIO_NUM_8, 0);
+        vTaskDelay(300 / portTICK_PERIOD_MS);
     }
     vTaskDelete( NULL );  
 }
 
-extern "C" void app_main()
+void js_sequence_task(void *pvParameter) {
+    printf("Start JS demo\n");
+
+    JSController *jsController = new JSController(ledController);
+
+    jsController->runCode(js_content);
+
+    delete jsController;
+
+    vTaskDelete( NULL );  
+}
+
+void init_uart() {
+    uart_config_t uart_config = {
+        .baud_rate = 9600,
+        .data_bits = UART_DATA_8_BITS,
+        .parity    = UART_PARITY_DISABLE,
+        .stop_bits = UART_STOP_BITS_1,
+        .flow_ctrl = UART_HW_FLOWCTRL_CTS_RTS,
+        .rx_flow_ctrl_thresh = 122,
+    };
+    uart_param_config(UART_NUM_1, &uart_config);
+    uart_set_pin(UART_NUM_1, TXD_PIN, RXD_PIN, UART_PIN_NO_CHANGE, UART_PIN_NO_CHANGE);
+    uart_driver_install(UART_NUM_1, BUF_SIZE * 2, 0, 0, NULL, 0);
+}
+
+void uart_task(void *arg) {
+    uint8_t *data = (uint8_t *) malloc(BUF_SIZE);
+    while (1) {
+        int len = uart_read_bytes(UART_NUM_1, data, BUF_SIZE, 20 / portTICK_PERIOD_MS);
+        if (len > 0) {
+            uart_write_bytes(UART_NUM_1, (const char *) data, len);
+        }
+    }
+    free(data);
+}
+
+extern "C" {
+    void app_main();
+}
+
+void app_main()
 {   
-    xTaskCreate(
-    &led_sequence_task,
-    "led_sequence_task",
-    2048,
-    NULL,
-    5,
-    NULL);
+    settingsController = new SettingsController();
 
-    xTaskCreate(
-    &free_memory,
-    "free_memory",
-    2048,
-    NULL,
-    1,
-    NULL);
+    int number = settingsController->loadConfig();
 
-    xTaskCreate(
-    &rainbow_sequence_task,
-    "rainbow_sequence_task",
-    16384,
-    NULL,
-    5,
-    NULL);   
+    if (number == 0 ) {
+        printf("Vi venter på data");
+
+        xTaskCreate(
+        &led_setting_sequence_task,
+        "led_setting_sequence_task",
+        2048,
+        NULL,
+        5,
+        NULL);
+
+        settingsController->saveConfig(512);
+
+        vTaskDelay(5000 / portTICK_PERIOD_MS);
+
+        esp_restart();
+    } else {
+        configure_button();
+
+        printf("Setting data: %d", number);
+        ledController = new LedController(10, 1, 55);
+
+        xTaskCreate(
+        &led_sequence_task,
+        "led_sequence_task",
+        2048,
+        NULL,
+        5,
+        NULL);
+
+        xTaskCreate(
+        &free_memory,
+        "free_memory",
+        2048,
+        NULL,
+        1,
+        NULL);
+
+        xTaskCreate(
+        &js_sequence_task,
+        "js_sequence_task",
+        16384,
+        NULL,
+        5,
+        NULL);
+    }   
 }
