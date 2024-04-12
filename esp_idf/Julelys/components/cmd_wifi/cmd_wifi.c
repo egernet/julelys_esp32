@@ -65,6 +65,10 @@ static void initialise_wifi(void)
     initialized = true;
 }
 
+static bool wifi_join_from_settings() {
+    return false;
+}
+
 static bool wifi_join(const char *ssid, const char *pass, int timeout_ms)
 {
     initialise_wifi();

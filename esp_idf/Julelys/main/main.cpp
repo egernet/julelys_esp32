@@ -34,15 +34,43 @@
 #include "iot_button.h"
 #include "button_gpio.h"
 
-static const char TAG[] = "Jylelys";
-
 #define PROMPT_STR "julelys"
+
+#define BUTTON_PIN GPIO_NUM_9
+#define LONG_PRESS_DELAY 10000
+
+#define MOUNT_PATH "/data"
+#define HISTORY_PATH MOUNT_PATH "/history.txt"
+
+static const char TAG[] = "Jylelys";
 
 LedController *ledController;
 SettingsController *settingsController;
 
-#define BUTTON_PIN GPIO_NUM_9
-#define LONG_PRESS_DELAY 10000
+static void initialize_filesystem(void)
+{
+    static wl_handle_t wl_handle;
+    const esp_vfs_fat_mount_config_t mount_config = {
+            .format_if_mount_failed = true,
+            .max_files = 4,
+    };
+
+    esp_err_t err = esp_vfs_fat_spiflash_mount_rw_wl(MOUNT_PATH, "storage", &mount_config, &wl_handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Failed to mount FATFS (%s)", esp_err_to_name(err));
+        return;
+    }
+}
+
+static void initialize_nvs(void)
+{
+    esp_err_t err = nvs_flash_init();
+    if (err == ESP_ERR_NVS_NO_FREE_PAGES || err == ESP_ERR_NVS_NEW_VERSION_FOUND) {
+        ESP_ERROR_CHECK( nvs_flash_erase() );
+        err = nvs_flash_init();
+    }
+    ESP_ERROR_CHECK(err);
+}
 
 void button_single_click_cb(void *arg,void *usr_data) {
     ESP_LOGI(TAG, "BUTTON_SINGLE_CLICK");
@@ -128,7 +156,7 @@ void led_setting_sequence_task(void *pvParameter) {
 }
 
 void js_sequence_task(void *pvParameter) {
-    printf("Start JS demo\n");
+    ESP_LOGI(TAG, "Start JS");
 
     JSController *jsController = new JSController(ledController);
 
@@ -204,10 +232,7 @@ static void initialize_console(void)
     /* Don't return empty lines */
     linenoiseAllowEmpty(false);
 
-#if CONFIG_STORE_HISTORY
-    /* Load command history from filesystem */
     linenoiseHistoryLoad(HISTORY_PATH);
-#endif
 }
 
 void startupTasks() {
@@ -215,6 +240,8 @@ void startupTasks() {
 
     settingsController = new SettingsController();
     ledController = new LedController(10, 1, 55);
+
+    //configMAX_PRIORITIES 
 
     xTaskCreate(
     &led_sequence_task,
@@ -229,7 +256,7 @@ void startupTasks() {
     "free_memory",
     2048,
     NULL,
-    1,
+    5,
     NULL);
 
     xTaskCreate(
@@ -237,7 +264,7 @@ void startupTasks() {
     "js_sequence_task",
     16384,
     NULL,
-    5,
+    1,
     NULL);
 }
 
@@ -249,15 +276,8 @@ void app_main(void)
 {
     startupTasks();
 
-    // initialize_nvs();
-
-#if CONFIG_STORE_HISTORY
+    initialize_nvs();
     initialize_filesystem();
-    ESP_LOGI(TAG, "Command history enabled");
-#else
-    ESP_LOGI(TAG, "Command history disabled");
-#endif
-
     initialize_console();
 
     /* Register commands */
@@ -306,10 +326,7 @@ void app_main(void)
         /* Add the command to the history if not empty*/
         if (strlen(line) > 0) {
             linenoiseHistoryAdd(line);
-#if CONFIG_STORE_HISTORY
-            /* Save command history to filesystem */
             linenoiseHistorySave(HISTORY_PATH);
-#endif
         }
 
         /* Try to run the command */
