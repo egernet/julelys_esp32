@@ -20,6 +20,8 @@ extern "C" {
 // Register WiFi functions
 void register_wifi(void);
 
+bool wifi_join_from_settings();
+
 #ifdef __cplusplus
 }
 #endif

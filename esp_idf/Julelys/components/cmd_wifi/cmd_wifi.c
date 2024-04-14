@@ -65,10 +65,6 @@ static void initialise_wifi(void)
     initialized = true;
 }
 
-static bool wifi_join_from_settings() {
-    return false;
-}
-
 static bool wifi_join(const char *ssid, const char *pass, int timeout_ms)
 {
     initialise_wifi();
@@ -137,4 +133,8 @@ void register_wifi(void)
     };
 
     ESP_ERROR_CHECK( esp_console_cmd_register(&join_cmd) );
+}
+
+bool wifi_join_from_settings() {
+    return wifi_join("Egernet WLAN", "lille hvem", JOIN_TIMEOUT_MS);;
 }

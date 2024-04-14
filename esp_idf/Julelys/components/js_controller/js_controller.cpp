@@ -35,21 +35,22 @@ jsval_t setPixelColor(struct js *js, jsval_t *args, int nargs) {
     uint32_t x = (uint32_t)js_getnum(args[4]);
     uint32_t y = (uint32_t)js_getnum(args[5]);
 
-    ledController->setPixel(x, red, green, blue, white);
+    ledController->setPixel(y, x, red, green, blue, white);
 
     return js_mknum(0);
 }
 
 jsval_t updatePixels(struct js *js, jsval_t *args, int nargs) {
-    ledController->refresh();
+    //ledController->refresh();
+    vTaskDelay(10 / portTICK_PERIOD_MS);
     
     return js_mknum(0);
 }
 
 void JSController::runCode(const char *code) {
     stop = false;
-    double matrixHeight = 55;
-    double matrixWidth = 1;
+    double matrixHeight = ledController->matrixHeight;
+    double matrixWidth = ledController->matrixWidth;
     
     long startTime = (long)(esp_timer_get_time() / 1000);
     long time = startTime;

@@ -30,6 +30,7 @@
 #include "js_controller.h"
 #include "settings_controller.h"
 #include "cmd_wifi.h"
+#include "mongoose.h"
 
 #include "iot_button.h"
 #include "button_gpio.h"
@@ -43,6 +44,7 @@
 #define HISTORY_PATH MOUNT_PATH "/history.txt"
 
 static const char TAG[] = "Jylelys";
+static struct mg_mgr s_mgr;
 
 LedController *ledController;
 SettingsController *settingsController;
@@ -113,46 +115,10 @@ void free_memory(void *pvParameter) {
 }
 
 void led_sequence_task(void *pvParameter) {
-    gpio_reset_pin(GPIO_NUM_8);
-    gpio_reset_pin(GPIO_NUM_7);
-    gpio_reset_pin(GPIO_NUM_6);
-    gpio_set_direction(GPIO_NUM_8, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_7, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_6, GPIO_MODE_OUTPUT);
-
     while (1) {
-        gpio_set_level(GPIO_NUM_6, 0);
-        gpio_set_level(GPIO_NUM_8, 1);     
-        vTaskDelay(300 / portTICK_PERIOD_MS);
-        gpio_set_level(GPIO_NUM_8, 0);
-        gpio_set_level(GPIO_NUM_7, 1);
-        vTaskDelay(300 / portTICK_PERIOD_MS);
-        gpio_set_level(GPIO_NUM_7, 0);
-        gpio_set_level(GPIO_NUM_6, 1);
-        vTaskDelay(300 / portTICK_PERIOD_MS);
+        ledController->updateLedTask(pvParameter);
     }
-    vTaskDelete( NULL );  
-}
-
-void led_setting_sequence_task(void *pvParameter) {
-    gpio_reset_pin(GPIO_NUM_8);
-    gpio_reset_pin(GPIO_NUM_7);
-    gpio_reset_pin(GPIO_NUM_6);
-    gpio_set_direction(GPIO_NUM_8, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_7, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_6, GPIO_MODE_OUTPUT);
-
-    gpio_set_level(GPIO_NUM_8, 0);
-    gpio_set_level(GPIO_NUM_7, 0);
-    gpio_set_level(GPIO_NUM_6, 0);
-
-    while (1) {
-        gpio_set_level(GPIO_NUM_8, 1);     
-        vTaskDelay(300 / portTICK_PERIOD_MS);
-        gpio_set_level(GPIO_NUM_8, 0);
-        vTaskDelay(300 / portTICK_PERIOD_MS);
-    }
-    vTaskDelete( NULL );  
+    vTaskDelete( NULL );
 }
 
 void js_sequence_task(void *pvParameter) {
@@ -235,11 +201,80 @@ static void initialize_console(void)
     linenoiseHistoryLoad(HISTORY_PATH);
 }
 
+char *rpc_exec(struct mg_str req) {
+  char *code = mg_json_get_str(req, "$.params.code");
+  if (code) {
+    ESP_LOGI(TAG, "%s", code);
+
+    free(code);
+    return mg_mprintf("%Q", "start");
+  } else {
+    return mg_mprintf("%Q", "missing code");
+  }
+}
+
+void cb(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
+  if (ev == MG_EV_HTTP_MSG) {
+    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
+    MG_INFO(("HTTP msg: %.*s %.*s", (int) hm->method.len, hm->method.ptr,
+             (int) hm->uri.len, hm->uri.ptr));
+    if (mg_http_match_uri(hm, "/ws")) {
+      mg_ws_upgrade(c, hm, NULL);
+    } else {
+      mg_http_reply(c, 302, "Location: http://elk-js.com/\r\n", "");
+    }
+  } else if (ev == MG_EV_WS_MSG) {
+    struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
+    // MG_INFO(("WS msg: %.*s", (int) wm->data.len, wm->data.ptr));
+    long id = mg_json_get_long(wm->data, "$.id", 0);
+    char *method = mg_json_get_str(wm->data, "$.method");
+    char *response = NULL;
+    if (method != NULL && strcmp(method, "exec") == 0) {
+      response = rpc_exec(wm->data);
+      mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{%Q:%ld,%Q:%s}", "id", id, "result",
+                   response);
+    } else {
+      mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{%Q:%ld,%Q:{%Q:%d,%Q:%Q}}", "id", id,
+                   "error", "code", 404, "message", "unknown method");
+    }
+    free(response);
+    free(method);
+    //logstats();
+  }
+  (void) fn_data;
+}
+
+void log_cb(uint8_t ch) {
+  static char buf[256];
+  static size_t len;
+  buf[len++] = ch;
+  if (ch == '\n' || len >= sizeof(buf)) {
+    fwrite(buf, 1, len, stdout);
+    char *data = mg_mprintf("{%Q:%Q,%Q:%V}", "name", "log", "data", len, buf);
+    for (struct mg_connection *c = s_mgr.conns; c != NULL; c = c->next) {
+      if (!c->is_websocket) continue;
+      mg_ws_send(c, data, strlen(data), WEBSOCKET_OP_TEXT);
+    }
+    free(data);
+    len = 0;
+  }
+}
+
+void webtask(void *param) {
+  mg_mgr_init(&s_mgr);
+  mg_log_set_fn(log_cb);
+  mg_http_listen(&s_mgr, "http://0.0.0.0:80", cb, &s_mgr);
+  ESP_LOGI(TAG, "Starting Mongoose v%s", MG_VERSION);
+  ESP_LOGI(TAG, "Go to http://elk-js.com, enter my IP and connect");
+  for (;;) mg_mgr_poll(&s_mgr, 100);
+  (void) param;
+}
+
 void startupTasks() {
     configure_button();
 
     settingsController = new SettingsController();
-    ledController = new LedController(10, 1, 55);
+    ledController = new LedController(10, 8, 55);
 
     //configMAX_PRIORITIES 
 
@@ -248,23 +283,23 @@ void startupTasks() {
     "led_sequence_task",
     2048,
     NULL,
-    5,
+    configMAX_PRIORITIES - 1,
     NULL);
 
-    xTaskCreate(
-    &free_memory,
-    "free_memory",
-    2048,
-    NULL,
-    5,
-    NULL);
+    // xTaskCreate(
+    // &free_memory,
+    // "free_memory",
+    // 2048,
+    // NULL,
+    // 5,
+    // NULL);
 
     xTaskCreate(
     &js_sequence_task,
     "js_sequence_task",
     16384,
     NULL,
-    1,
+    configMAX_PRIORITIES - 2,
     NULL);
 }
 
@@ -285,6 +320,14 @@ void app_main(void)
     // register_system();
     register_wifi();
     // register_nvs();
+
+    // ESP_LOGE(TAG, "Setup WIFI");
+    // if (wifi_join_from_settings()) {
+    //     ESP_LOGE(TAG, "Connected WIFI");
+    //     xTaskCreate(webtask, "web server", 16384, NULL, 2, NULL);
+    // } else {
+    //     ESP_LOGE(TAG, "Can't Connect to the WIFI");
+    // }
 
     /* Prompt to be printed before each line.
      * This can be customized, made dynamic, etc.
