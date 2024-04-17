@@ -17,8 +17,7 @@ private:
     
     void configureLed(int pin, uint32_t leds);
     void changeChannel(int toChannel);
-    void refresh();
-
+    
 public:
     int matrixWidth;
     int matrixHeight;
@@ -26,7 +25,7 @@ public:
     LedController(int pin, int width, int height);
 
     void setPixel(uint32_t row, uint32_t col, uint32_t red, uint32_t green, uint32_t blue, uint32_t white);
-    void updateLedTask(void *param);
+    void refresh(int row);
 };
 
 #endif /* LED_CONTROLLER_H */

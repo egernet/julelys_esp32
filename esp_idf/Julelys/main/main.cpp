@@ -30,6 +30,7 @@
 #include "js_controller.h"
 #include "settings_controller.h"
 #include "cmd_wifi.h"
+#include "cmd_system.h"
 #include "mongoose.h"
 
 #include "iot_button.h"
@@ -107,18 +108,11 @@ void configure_button() {
 void free_memory(void *pvParameter) {
     while (1) {
         uint32_t freeHeapBytes = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-        printf("Free mem:%ld\n", freeHeapBytes);
+        ESP_LOGW(TAG, "Free mem:%ld\n", freeHeapBytes);
 
         vTaskDelay(60000 / portTICK_PERIOD_MS);
     }
     vTaskDelete( NULL ); 
-}
-
-void led_sequence_task(void *pvParameter) {
-    while (1) {
-        ledController->updateLedTask(pvParameter);
-    }
-    vTaskDelete( NULL );
 }
 
 void js_sequence_task(void *pvParameter) {
@@ -271,27 +265,19 @@ void webtask(void *param) {
 }
 
 void startupTasks() {
-    configure_button();
+    //configure_button();
 
     settingsController = new SettingsController();
     ledController = new LedController(10, 8, 55);
 
     //configMAX_PRIORITIES 
 
-    xTaskCreate(
-    &led_sequence_task,
-    "led_sequence_task",
-    2048,
-    NULL,
-    configMAX_PRIORITIES - 1,
-    NULL);
-
     // xTaskCreate(
     // &free_memory,
     // "free_memory",
     // 2048,
     // NULL,
-    // 5,
+    // 2,
     // NULL);
 
     xTaskCreate(
@@ -299,7 +285,7 @@ void startupTasks() {
     "js_sequence_task",
     16384,
     NULL,
-    configMAX_PRIORITIES - 2,
+    1,
     NULL);
 }
 
@@ -309,25 +295,23 @@ extern "C" {
 
 void app_main(void)
 {
-    startupTasks();
-
     initialize_nvs();
     initialize_filesystem();
     initialize_console();
 
     /* Register commands */
     esp_console_register_help_command();
-    // register_system();
+    register_system();
     register_wifi();
     // register_nvs();
 
-    // ESP_LOGE(TAG, "Setup WIFI");
-    // if (wifi_join_from_settings()) {
-    //     ESP_LOGE(TAG, "Connected WIFI");
-    //     xTaskCreate(webtask, "web server", 16384, NULL, 2, NULL);
-    // } else {
-    //     ESP_LOGE(TAG, "Can't Connect to the WIFI");
-    // }
+    ESP_LOGI(TAG, "Setup WIFI");
+    if (wifi_join_from_settings()) {
+        ESP_LOGI(TAG, "Connected WIFI");
+        xTaskCreate(webtask, "web server", 16384, NULL, 3, NULL);
+    } else {
+        ESP_LOGI(TAG, "Can't Connect to the WIFI");
+    }
 
     /* Prompt to be printed before each line.
      * This can be customized, made dynamic, etc.
@@ -358,6 +342,8 @@ void app_main(void)
     }
 
     /* Main loop */
+    startupTasks();
+
     while(true) {
         /* Get a line using linenoise.
          * The line is returned when ENTER is pressed.

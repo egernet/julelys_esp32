@@ -41,8 +41,8 @@ jsval_t setPixelColor(struct js *js, jsval_t *args, int nargs) {
 }
 
 jsval_t updatePixels(struct js *js, jsval_t *args, int nargs) {
-    //ledController->refresh();
-    vTaskDelay(10 / portTICK_PERIOD_MS);
+    int row = (int)js_getnum(args[0]);
+    ledController->refresh(row);
     
     return js_mknum(0);
 }
@@ -53,7 +53,6 @@ void JSController::runCode(const char *code) {
     double matrixWidth = ledController->matrixWidth;
     
     long startTime = (long)(esp_timer_get_time() / 1000);
-    long time = startTime;
     
     while (!stop) { 
         long time = (long)(esp_timer_get_time() / 1000);  
@@ -63,6 +62,20 @@ void JSController::runCode(const char *code) {
             code,
             ~0U);
     }
+}
+
+void JSController::runCodeOne(const char *code) {
+    stop = false;
+    double matrixHeight = ledController->matrixHeight;
+    double matrixWidth = ledController->matrixWidth;
+    
+    long startTime = (long)(esp_timer_get_time() / 1000);
+    long time = (long)(esp_timer_get_time() / 1000);  
+
+    jsEngine = setup(matrixHeight, matrixWidth, startTime, time);
+    js_eval(jsEngine,
+        code,
+        ~0U);
 }
 
 struct js *JSController::setup(double matrixHeight, double matrixWidth, long start, long time) { 

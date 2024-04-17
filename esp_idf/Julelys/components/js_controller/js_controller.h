@@ -13,6 +13,7 @@ public:
     JSController(LedController *controller);
 
     void runCode(const char *code);
+    void runCodeOne(const char *code);
 
     void stopRinning();
 };
