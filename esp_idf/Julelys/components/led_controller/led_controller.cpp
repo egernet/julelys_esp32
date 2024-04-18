@@ -14,8 +14,6 @@
 const char TAG[] = "Jylelys.LED";
 led_strip_handle_t led_strip;
 
-bool isReading = false;
-bool imageHaveChange = false;
 int updateInterval;
 
 std::vector<std::vector<RgbwColor>> image;
@@ -30,7 +28,7 @@ LedController::LedController(int pin, int width, int height) : ledPin(pin), matr
 }
 
 void LedController::configureLed(int pin, uint32_t leds) {
-    ESP_LOGI(TAG, "Configured addressable to LED's");
+    ESP_LOGI(TAG, "Configured addressable LED");
     
     image = initializeMatrix(matrixWidth, matrixHeight);
 
@@ -72,28 +70,51 @@ void LedController::configureLed(int pin, uint32_t leds) {
             image[row][col] = color;
         }
     }
+
+    imageHaveChange = true;
 }
 
 void LedController::setPixel(uint32_t row, uint32_t col, uint32_t red, uint32_t green, uint32_t blue, uint32_t white) {
     RgbwColor color(red, green, blue, white);
-    // image[row][col] = color;
-
-    led_strip_set_pixel_rgbw(led_strip, col, color.red, color.green, color.blue, color.white);
+    setPixel(row, col, color);
 }
 
-void LedController::refresh(int row) {
-    changeChannel(row);
+void LedController::setPixel(uint32_t row, uint32_t col, RgbwColor color) {
+    image[row][col] = color;
 
-    // for(int col=0; col<matrixHeight; col++) {
-    //     RgbwColor color = image[row][col];
-    //     led_strip_set_pixel_rgbw(led_strip, col, color.red, color.green, color.blue, color.white);
-    // }
+    // imageHaveChange = true;
+    // do {
+    //     vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+    // } while(isReading);
+}
 
-    led_strip_refresh(led_strip);
+void LedController::refresh() {
+    for(int r=0; r<matrixWidth; r++) {
+        changeChannel(r);
+
+        for(int c=0; c<matrixHeight; c++) {
+            RgbwColor color = image[r][c];
+            led_strip_set_pixel_rgbw(led_strip, c, color.red, color.green, color.blue, color.white);
+        }
+
+        led_strip_refresh(led_strip);
+        vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+  }
 }
 
 void LedController::changeChannel(int toChannel) {
   gpio_set_level(GPIO_NUM_6, (toChannel >> 0) & 1);
   gpio_set_level(GPIO_NUM_7, (toChannel >> 1) & 1);
   gpio_set_level(GPIO_NUM_8, (toChannel >> 2) & 1);
+}
+
+void LedController::updateLedTask(void *param) {
+    if (imageHaveChange == false) {
+        vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+    } else {
+        isReading = true;
+        refresh(); 
+        isReading = false;   
+        imageHaveChange = false;         
+    }
 }

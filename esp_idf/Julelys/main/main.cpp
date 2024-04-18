@@ -24,17 +24,15 @@
 #include "nvs.h"
 #include "nvs_flash.h"
 
-#include "js_string.h"
-
 #include "led_controller.h"
-#include "js_controller.h"
 #include "settings_controller.h"
 #include "cmd_wifi.h"
 #include "cmd_system.h"
-#include "mongoose.h"
 
 #include "iot_button.h"
 #include "button_gpio.h"
+
+#include "esp_task_wdt.h"
 
 #define PROMPT_STR "julelys"
 
@@ -45,7 +43,6 @@
 #define HISTORY_PATH MOUNT_PATH "/history.txt"
 
 static const char TAG[] = "Jylelys";
-static struct mg_mgr s_mgr;
 
 LedController *ledController;
 SettingsController *settingsController;
@@ -105,26 +102,66 @@ void configure_button() {
     iot_button_register_cb(gpio_btn, BUTTON_LONG_PRESS_START, button_long_press_start_cb, NULL);
 }
 
-void free_memory(void *pvParameter) {
+void led_sequence_task(void *pvParameter) {
     while (1) {
-        uint32_t freeHeapBytes = heap_caps_get_free_size(MALLOC_CAP_DEFAULT);
-        ESP_LOGW(TAG, "Free mem:%ld\n", freeHeapBytes);
-
-        vTaskDelay(60000 / portTICK_PERIOD_MS);
+        ledController->updateLedTask(pvParameter);
     }
-    vTaskDelete( NULL ); 
+    vTaskDelete( NULL );
 }
 
-void js_sequence_task(void *pvParameter) {
-    ESP_LOGI(TAG, "Start JS");
+RgbwColor colorWheel(int pos) {
+    int r = 0;
+    int g = 0;
+    int b = 0;
+    pos = 255 - pos;
 
-    JSController *jsController = new JSController(ledController);
+    if ( pos < 85 ) {
+        r = 255 - pos * 3;
+        g = 0;
+        b = pos * 3;
+    } else if (pos < 170) {
+        pos -= 85;
+        r = 0;
+        g = pos * 3;
+        b = 255 - pos * 3;
+    } else {
+        pos -= 170;
+        r = pos * 3;
+        g = 255 - pos * 3;
+        b = 0;
+    }
 
-    jsController->runCode(js_content);
+    RgbwColor color(r, g, b, 0);
 
-    delete jsController;
+    return color;
+}
 
-    vTaskDelete( NULL );  
+void setPixel(uint32_t row, uint32_t col, RgbwColor color) {
+    ledController->setPixel(row, col, color);
+}
+
+void rain_sequence_task(void *pvParameter) {
+    int width = ledController->matrixWidth;
+    int height = ledController->matrixHeight;
+    int iterations = 1;
+
+    while (1) {
+        for(int i = 0; i < 255 * iterations; i++) {
+            for(int y = 0; y < width; y++) {
+                for(int x = 0; x < height; x++) {
+                    int index = ((x * 255 / height) + i) & 255;
+                    RgbwColor showColor = colorWheel( index );
+                    setPixel(y, x, showColor);
+                }
+            }
+
+            ledController->imageHaveChange = true;
+            do {
+                vTaskDelay(10 / portTICK_PERIOD_MS);
+            } while(ledController->isReading);
+        }
+    }
+    vTaskDelete( NULL );
 }
 
 static void initialize_console(void)
@@ -195,97 +232,26 @@ static void initialize_console(void)
     linenoiseHistoryLoad(HISTORY_PATH);
 }
 
-char *rpc_exec(struct mg_str req) {
-  char *code = mg_json_get_str(req, "$.params.code");
-  if (code) {
-    ESP_LOGI(TAG, "%s", code);
-
-    free(code);
-    return mg_mprintf("%Q", "start");
-  } else {
-    return mg_mprintf("%Q", "missing code");
-  }
-}
-
-void cb(struct mg_connection *c, int ev, void *ev_data, void *fn_data) {
-  if (ev == MG_EV_HTTP_MSG) {
-    struct mg_http_message *hm = (struct mg_http_message *) ev_data;
-    MG_INFO(("HTTP msg: %.*s %.*s", (int) hm->method.len, hm->method.ptr,
-             (int) hm->uri.len, hm->uri.ptr));
-    if (mg_http_match_uri(hm, "/ws")) {
-      mg_ws_upgrade(c, hm, NULL);
-    } else {
-      mg_http_reply(c, 302, "Location: http://elk-js.com/\r\n", "");
-    }
-  } else if (ev == MG_EV_WS_MSG) {
-    struct mg_ws_message *wm = (struct mg_ws_message *) ev_data;
-    // MG_INFO(("WS msg: %.*s", (int) wm->data.len, wm->data.ptr));
-    long id = mg_json_get_long(wm->data, "$.id", 0);
-    char *method = mg_json_get_str(wm->data, "$.method");
-    char *response = NULL;
-    if (method != NULL && strcmp(method, "exec") == 0) {
-      response = rpc_exec(wm->data);
-      mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{%Q:%ld,%Q:%s}", "id", id, "result",
-                   response);
-    } else {
-      mg_ws_printf(c, WEBSOCKET_OP_TEXT, "{%Q:%ld,%Q:{%Q:%d,%Q:%Q}}", "id", id,
-                   "error", "code", 404, "message", "unknown method");
-    }
-    free(response);
-    free(method);
-    //logstats();
-  }
-  (void) fn_data;
-}
-
-void log_cb(uint8_t ch) {
-  static char buf[256];
-  static size_t len;
-  buf[len++] = ch;
-  if (ch == '\n' || len >= sizeof(buf)) {
-    fwrite(buf, 1, len, stdout);
-    char *data = mg_mprintf("{%Q:%Q,%Q:%V}", "name", "log", "data", len, buf);
-    for (struct mg_connection *c = s_mgr.conns; c != NULL; c = c->next) {
-      if (!c->is_websocket) continue;
-      mg_ws_send(c, data, strlen(data), WEBSOCKET_OP_TEXT);
-    }
-    free(data);
-    len = 0;
-  }
-}
-
-void webtask(void *param) {
-  mg_mgr_init(&s_mgr);
-  mg_log_set_fn(log_cb);
-  mg_http_listen(&s_mgr, "http://0.0.0.0:80", cb, &s_mgr);
-  ESP_LOGI(TAG, "Starting Mongoose v%s", MG_VERSION);
-  ESP_LOGI(TAG, "Go to http://elk-js.com, enter my IP and connect");
-  for (;;) mg_mgr_poll(&s_mgr, 100);
-  (void) param;
-}
-
 void startupTasks() {
-    //configure_button();
+    configure_button();
 
     settingsController = new SettingsController();
     ledController = new LedController(10, 8, 55);
 
-    //configMAX_PRIORITIES 
-
-    // xTaskCreate(
-    // &free_memory,
-    // "free_memory",
-    // 2048,
-    // NULL,
-    // 2,
-    // NULL);
+    xTaskCreate(
+    &led_sequence_task,
+    "led_sequence_task",
+    2048,
+    NULL,
+    5,
+    NULL);
 
     xTaskCreate(
-    &js_sequence_task,
-    "js_sequence_task",
-    16384,
+    &rain_sequence_task,
+    "rain_sequence_task",
+    2048,
     NULL,
-    1,
+    5,
     NULL);
 }
 
@@ -295,6 +261,8 @@ extern "C" {
 
 void app_main(void)
 {
+    startupTasks();
+
     initialize_nvs();
     initialize_filesystem();
     initialize_console();
@@ -303,12 +271,10 @@ void app_main(void)
     esp_console_register_help_command();
     register_system();
     register_wifi();
-    // register_nvs();
 
     ESP_LOGI(TAG, "Setup WIFI");
     if (wifi_join_from_settings()) {
         ESP_LOGI(TAG, "Connected WIFI");
-        xTaskCreate(webtask, "web server", 16384, NULL, 3, NULL);
     } else {
         ESP_LOGI(TAG, "Can't Connect to the WIFI");
     }
@@ -342,8 +308,6 @@ void app_main(void)
     }
 
     /* Main loop */
-    startupTasks();
-
     while(true) {
         /* Get a line using linenoise.
          * The line is returned when ENTER is pressed.
@@ -377,62 +341,3 @@ void app_main(void)
     ESP_LOGE(TAG, "Error or end-of-input, terminating console");
     esp_console_deinit();
 }
-/*
-void app_main()
-{   
-    settingsController = new SettingsController();
-
-    int number = settingsController->loadConfig();
-
-    if (number == 0 ) {
-        printf("Vi venter på data");
-
-        xTaskCreate(
-        &led_setting_sequence_task,
-        "led_setting_sequence_task",
-        2048,
-        NULL,
-        5,
-        NULL);
-
-        initialize_console();
-        console_task();
-
-        //settingsController->saveConfig(512);
-
-        //vTaskDelay(15000 / portTICK_PERIOD_MS);
-
-        //esp_restart();
-    } else {
-        configure_button();
-
-        printf("Setting data: %d", number);
-        ledController = new LedController(10, 1, 55);
-
-        xTaskCreate(
-        &led_sequence_task,
-        "led_sequence_task",
-        2048,
-        NULL,
-        5,
-        NULL);
-
-        xTaskCreate(
-        &free_memory,
-        "free_memory",
-        2048,
-        NULL,
-        1,
-        NULL);
-
-        xTaskCreate(
-        &js_sequence_task,
-        "js_sequence_task",
-        16384,
-        NULL,
-        5,
-        NULL);
-    }   
-}
-
-*/
