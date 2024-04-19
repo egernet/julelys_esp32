@@ -17,13 +17,13 @@ private:
     
     void configureLed(int pin, uint32_t leds);
     void changeChannel(int toChannel);
-    void refresh();
 public:
     int matrixWidth;
     int matrixHeight;
 
     bool isReading = false;
     bool imageHaveChange = false;
+    int updateInterval;
 
     LedController(int pin, int width, int height);
 
@@ -31,6 +31,7 @@ public:
     void setPixel(uint32_t row, uint32_t col, RgbwColor color);
     
     void updateLedTask(void *param);
+    void refresh();
 };
 
 #endif /* LED_CONTROLLER_H */

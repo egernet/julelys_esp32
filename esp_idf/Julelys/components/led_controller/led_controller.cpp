@@ -14,8 +14,6 @@
 const char TAG[] = "Jylelys.LED";
 led_strip_handle_t led_strip;
 
-int updateInterval;
-
 std::vector<std::vector<RgbwColor>> image;
 
 std::vector<std::vector<RgbwColor>> initializeMatrix(int rows, int cols) {
@@ -81,11 +79,6 @@ void LedController::setPixel(uint32_t row, uint32_t col, uint32_t red, uint32_t 
 
 void LedController::setPixel(uint32_t row, uint32_t col, RgbwColor color) {
     image[row][col] = color;
-
-    // imageHaveChange = true;
-    // do {
-    //     vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-    // } while(isReading);
 }
 
 void LedController::refresh() {

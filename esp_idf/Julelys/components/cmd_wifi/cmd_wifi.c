@@ -136,5 +136,5 @@ void register_wifi(void)
 }
 
 bool wifi_join_from_settings() {
-    return wifi_join("Egernet WLAN", "lille hvem", JOIN_TIMEOUT_MS);;
+    return wifi_join("******", "******", JOIN_TIMEOUT_MS);;
 }
