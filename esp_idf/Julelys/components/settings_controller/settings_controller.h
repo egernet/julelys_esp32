@@ -5,13 +5,21 @@
 
 class SettingsController {
 private:
-
+    void saveCharConfig(char *key, char *value);
+    void saveIntConfig(char *key, int value);
+    char* loadCharConfig(char *key);
+    int loadIntConfig(char *key);
+    int deleteKeyValue(const char *key);
 public:
     SettingsController();
 
-    void saveConfig(int value);
-    int loadConfig();
-    void reset();
+    void resetAll();
+
+    char* getWIFISSID();
+    char* getWIFIPassword();
+
+    void setWIFISSID(char* ssid);
+    void setWIFIPassword(char* password);
 };
 
 #endif /* SETTINGS_CONTROLLER_H */

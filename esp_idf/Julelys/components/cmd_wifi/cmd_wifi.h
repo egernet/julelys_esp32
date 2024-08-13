@@ -22,6 +22,8 @@ void register_wifi(void);
 
 bool wifi_join_from_settings();
 
+char * get_ip();
+
 #ifdef __cplusplus
 }
 #endif

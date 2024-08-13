@@ -111,3 +111,29 @@ void LedController::updateLedTask(void *param) {
         imageHaveChange = false;         
     }
 }
+
+void LedController::ledSequenceTask(void *pvParameter) {
+    LedController *ledController = static_cast<LedController*>(pvParameter);
+
+    while (1) {
+        ledController->updateLedTask(pvParameter);
+        vTaskDelay(33 / portTICK_PERIOD_MS);
+    }
+    vTaskDelete( NULL );
+}
+
+void LedController::startupLoopTask() {
+    xTaskCreate(ledSequenceTask, "led_sequence_task", 2048, this, 5, NULL);
+}
+
+void LedController::clean() {
+    RgbwColor color(255, 0, 0, 0);
+
+    for(int row=0; row<matrixWidth; row++) {
+        for(int col=0; col<matrixHeight; col++) {
+            image[row][col] = color;
+        }
+    }
+
+    imageHaveChange = true;
+}

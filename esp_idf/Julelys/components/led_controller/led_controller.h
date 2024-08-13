@@ -17,6 +17,8 @@ private:
     
     void configureLed(int pin, uint32_t leds);
     void changeChannel(int toChannel);
+
+    static void ledSequenceTask(void *pvParameter);
 public:
     int matrixWidth;
     int matrixHeight;
@@ -32,6 +34,10 @@ public:
     
     void updateLedTask(void *param);
     void refresh();
+
+    void startupLoopTask(); 
+
+    void clean();   
 };
 
 #endif /* LED_CONTROLLER_H */

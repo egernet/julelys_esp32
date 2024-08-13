@@ -1,3 +1,3 @@
-idf_component_register(SRCS "cmd_wifi.c" 
+idf_component_register(SRCS "cmd_wifi.cpp" 
     INCLUDE_DIRS .
-    REQUIRES console esp_wifi)
+    REQUIRES console esp_wifi settings_controller)

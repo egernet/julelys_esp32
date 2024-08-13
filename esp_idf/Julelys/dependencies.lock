@@ -11,6 +11,18 @@ dependencies:
       service_url: https://api.components.espressif.com/
       type: service
     version: 0.5.3
+  espressif/esp_lcd_sh1107:
+    component_hash: 9cc00a4d066e3e1d120fd2006d30612766488379b820804092a9bfedb3c1f93c
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.1.0
+  espressif/esp_lvgl_port:
+    component_hash: b43dc04720d126cbfe14d53a84787e4c24b7bd7f15468e224c930ad3ffb32258
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 1.4.0
   espressif/led_strip:
     component_hash: 67d2744208e9c12d8b1992d21c979396c1726e57cb7e35e7c171c515be20f8ea
     source:
@@ -22,6 +34,12 @@ dependencies:
     source:
       type: idf
     version: 5.1.2
-manifest_hash: a0de7ced6299b1d356ef9c83a11ec387f47fee9e0e754d430d3a5405f1040d0d
+  lvgl/lvgl:
+    component_hash: 948bff879a345149b83065535bbc4a026ce9f47498a22881e432a264b9098015
+    source:
+      service_url: https://api.components.espressif.com/
+      type: service
+    version: 8.3.11
+manifest_hash: ffafc3049b11ad27baa60d4f856831c8e4589a8c447f0ae9b117360574f71200
 target: esp32c3
 version: 1.0.0

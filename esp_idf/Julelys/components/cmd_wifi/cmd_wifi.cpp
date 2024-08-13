@@ -24,25 +24,31 @@
 #include "esp_event.h"
 #include "cmd_wifi.h"
 
+#include "settings_controller.h"
+
+extern SettingsController *settingsController;
+
 #define JOIN_TIMEOUT_MS (10000)
+
+static const char *TAG = "Jylelys.WIFI";
 
 static EventGroupHandle_t wifi_event_group;
 const int CONNECTED_BIT = BIT0;
+static char ip_address[16];
 
-
-static void event_handler(void* arg, esp_event_base_t event_base,
-                                int32_t event_id, void* event_data)
-{
+static void event_handler(void* arg, esp_event_base_t event_base, int32_t event_id, void* event_data) {
     if (event_base == WIFI_EVENT && event_id == WIFI_EVENT_STA_DISCONNECTED) {
         esp_wifi_connect();
         xEventGroupClearBits(wifi_event_group, CONNECTED_BIT);
     } else if (event_base == IP_EVENT && event_id == IP_EVENT_STA_GOT_IP) {
+        ip_event_got_ip_t* event = (ip_event_got_ip_t*) event_data;
+        snprintf(ip_address, sizeof(ip_address), IPSTR, IP2STR(&event->ip_info.ip)); 
+
         xEventGroupSetBits(wifi_event_group, CONNECTED_BIT);
     }
 }
 
-static void initialise_wifi(void)
-{
+static void initialise_wifi(void) {
     esp_log_level_set("wifi", ESP_LOG_WARN);
     static bool initialized = false;
     if (initialized) {
@@ -65,8 +71,7 @@ static void initialise_wifi(void)
     initialized = true;
 }
 
-static bool wifi_join(const char *ssid, const char *pass, int timeout_ms)
-{
+static bool wifi_join(const char *ssid, const char *pass, int timeout_ms) {
     initialise_wifi();
     wifi_config_t wifi_config = { 0 };
     strlcpy((char *) wifi_config.sta.ssid, ssid, sizeof(wifi_config.sta.ssid));
@@ -78,8 +83,8 @@ static bool wifi_join(const char *ssid, const char *pass, int timeout_ms)
     ESP_ERROR_CHECK( esp_wifi_set_config(WIFI_IF_STA, &wifi_config) );
     esp_wifi_connect();
 
-    int bits = xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT,
-                                   pdFALSE, pdTRUE, timeout_ms / portTICK_PERIOD_MS);
+    int bits = xEventGroupWaitBits(wifi_event_group, CONNECTED_BIT, pdFALSE, pdTRUE, timeout_ms / portTICK_PERIOD_MS);
+
     return (bits & CONNECTED_BIT) != 0;
 }
 
@@ -91,8 +96,12 @@ static struct {
     struct arg_end *end;
 } join_args;
 
-static int connect(int argc, char **argv)
-{
+static void saveToSettings(const char* ssid, const char* password) { 
+    settingsController->setWIFISSID((char*) ssid);
+    settingsController->setWIFIPassword((char*) password);
+}
+
+static int connect(int argc, char **argv) {
     int nerrors = arg_parse(argc, argv, (void **) &join_args);
     if (nerrors != 0) {
         arg_print_errors(stderr, join_args.end, argv[0]);
@@ -106,6 +115,8 @@ static int connect(int argc, char **argv)
         join_args.timeout->ival[0] = JOIN_TIMEOUT_MS;
     }
 
+    saveToSettings(join_args.ssid->sval[0], join_args.password->sval[0]);
+
     bool connected = wifi_join(join_args.ssid->sval[0],
                                join_args.password->sval[0],
                                join_args.timeout->ival[0]);
@@ -117,8 +128,7 @@ static int connect(int argc, char **argv)
     return 0;
 }
 
-void register_wifi(void)
-{
+void register_wifi(void) {
     join_args.timeout = arg_int0(NULL, "timeout", "<t>", "Connection timeout, ms");
     join_args.ssid = arg_str1(NULL, NULL, "<ssid>", "SSID of AP");
     join_args.password = arg_str0(NULL, NULL, "<pass>", "PSK of AP");
@@ -136,5 +146,17 @@ void register_wifi(void)
 }
 
 bool wifi_join_from_settings() {
-    return wifi_join("******", "******", JOIN_TIMEOUT_MS);;
+    char* ssid = settingsController->getWIFISSID();
+    char* password = settingsController->getWIFIPassword();
+
+    if (ssid == NULL || password == NULL) {
+        ESP_LOGW(TAG, "No WIFI info!");
+        return false;
+    }
+    
+    return wifi_join(ssid, password, JOIN_TIMEOUT_MS);
+}
+
+char * get_ip() {
+    return ip_address;
 }
