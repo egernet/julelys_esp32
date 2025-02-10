@@ -18,6 +18,8 @@ extern "C" {
 #include "esp_lvgl_port.h"
 #include "esp_lcd_sh1107.h"
 
+#define LV_CONF_INCLUDE_SIMPLE 1
+
 static const char *TAG = "Jylelys.OLED";
 
 #define EXAMPLE_LCD_PIXEL_CLOCK_HZ    (400 * 1000)
@@ -30,6 +32,8 @@ static const char *TAG = "Jylelys.OLED";
 
 #define EXAMPLE_LCD_CMD_BITS           8
 #define EXAMPLE_LCD_PARAM_BITS         8
+
+static lv_style_t style_title;
 
 static bool notify_lvgl_flush_ready(esp_lcd_panel_io_handle_t panel_io, esp_lcd_panel_io_event_data_t *edata, void *user_ctx)
 {
@@ -110,12 +114,20 @@ static lv_disp_t* initialise()
     return disp;
 }
 
-static lv_obj_t* log_ui(lv_disp_t *disp)
-{
+LV_FONT_DECLARE(lv_font_montserrat_12);
+
+static lv_obj_t* log_ui(lv_disp_t *disp) {   
     lv_obj_t *scr = lv_disp_get_scr_act(disp);
     lv_obj_t *label = lv_label_create(scr);
+
+    lv_style_init(&style_title);
+    lv_style_set_text_font(&style_title, &lv_font_montserrat_12);
+
     lv_label_set_long_mode(label, LV_LABEL_LONG_SCROLL_CIRCULAR); /* Circular scroll */
     lv_label_set_text(label, "Run default sequence rainbow");
+    
+    lv_obj_add_style(label, &style_title, 0);
+    
     /* Size of the screen (if you use rotation 90 or 270, please set disp->driver->ver_res) */
     lv_obj_set_width(label, disp->driver->hor_res);
     lv_obj_align(label, LV_ALIGN_BOTTOM_MID, 0, -18);
@@ -134,6 +146,7 @@ static lv_obj_t* ip_ui(lv_disp_t *disp, const char* ip_address)
     lv_label_set_text(label, full_text);
     lv_obj_set_width(label, disp->driver->hor_res);
     lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 15);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
 
     return label;
 }
@@ -149,6 +162,7 @@ static lv_obj_t* host_ip_ui(lv_disp_t *disp, const char* ip_address)
     lv_label_set_text(label, full_text);
     lv_obj_set_width(label, disp->driver->hor_res);
     lv_obj_align(label, LV_ALIGN_TOP_MID, 0, 0);
+    lv_obj_set_style_text_font(label, &lv_font_montserrat_12, 0);
 
     return label;
 }
