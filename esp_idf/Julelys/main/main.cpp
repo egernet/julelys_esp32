@@ -81,8 +81,6 @@ void spi_slave_task(void* arg) {
         } else {
             ESP_LOGW(TAG, "Ugyldig sekvens. Svarede alligevel.");
         }
-
-        vTaskDelay(pdMS_TO_TICKS(100)); // Lidt luft
     }
 }
 
@@ -177,7 +175,7 @@ static void initialize_console(void) {
 
 void setup() {
     settingsController = new SettingsController();
-    ledController = new LedController(10, 8, 55);
+    ledController = new LedController(GPIO_NUM_7, 8, 55);
 }
 
 void startupTasks() {

@@ -27,6 +27,7 @@ LedController::LedController(int pin, int width, int height) : ledPin(pin), matr
 
 void LedController::configureLed(int pin, uint32_t leds) {
     ESP_LOGI(TAG, "Configured addressable LED");
+    ESP_LOGI(TAG, "For pin: %d, with width: %d and height: %d", pin, matrixWidth, matrixHeight);
     
     image = initializeMatrix(matrixWidth, matrixHeight);
 
@@ -55,11 +56,11 @@ void LedController::configureLed(int pin, uint32_t leds) {
     ESP_LOGI(TAG, "Sleep time: %d", updateInterval);
 
     gpio_reset_pin(GPIO_NUM_8);
-    gpio_reset_pin(GPIO_NUM_7);
-    gpio_reset_pin(GPIO_NUM_6);
+    gpio_reset_pin(GPIO_NUM_5);
+    gpio_reset_pin(GPIO_NUM_4);
     gpio_set_direction(GPIO_NUM_8, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_7, GPIO_MODE_OUTPUT);
-    gpio_set_direction(GPIO_NUM_6, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_NUM_5, GPIO_MODE_OUTPUT);
+    gpio_set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT);
 
     RgbwColor color(255, 0, 0, 0);
 
@@ -96,8 +97,8 @@ void LedController::refresh() {
 }
 
 void LedController::changeChannel(int toChannel) {
-  gpio_set_level(GPIO_NUM_6, (toChannel >> 0) & 1);
-  gpio_set_level(GPIO_NUM_7, (toChannel >> 1) & 1);
+  gpio_set_level(GPIO_NUM_4, (toChannel >> 0) & 1);
+  gpio_set_level(GPIO_NUM_5, (toChannel >> 1) & 1);
   gpio_set_level(GPIO_NUM_8, (toChannel >> 2) & 1);
 }
 
