@@ -8,6 +8,6 @@ set(EXTRA_COMPONENT_DIRS ${CMAKE_CURRENT_SOURCE_DIR}/components)
 include($ENV{IDF_PATH}/tools/cmake/project.cmake)
 project(julelys_cli)
 
-add_executable(${PROJECT_NAME} src/main.cpp)
+add_executable(${PROJECT_NAME} main/main.cpp)
 
 target_include_directories(${PROJECT_NAME} PRIVATE include)
