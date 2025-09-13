@@ -2,6 +2,8 @@
 #include "led_strip.h"
 
 #include "freertos/task.h"
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 #include "esp_system.h"
 #include "esp_log.h"
@@ -9,10 +11,11 @@
 #include "driver/gpio.h"
 
 #include <algorithm>
-#include <vector>
 
 const char TAG[] = "Jylelys.LED";
 led_strip_handle_t led_strip;
+
+static const int MAX_FRAME_QUEUE = 3;
 
 std::vector<std::vector<RgbwColor>> image;
 
@@ -23,6 +26,7 @@ std::vector<std::vector<RgbwColor>> initializeMatrix(int rows, int cols) {
 
 LedController::LedController(int pin, int width, int height) : ledPin(pin), matrixWidth(width), matrixHeight(height) {
     configureLed(pin, (uint32_t)matrixHeight);
+    frameQueue = xQueueCreate(MAX_FRAME_QUEUE, sizeof(std::vector<std::vector<RgbwColor>>));
 }
 
 void LedController::configureLed(int pin, uint32_t leds) {
@@ -96,20 +100,52 @@ void LedController::refresh() {
   }
 }
 
+bool LedController::pushFrame(const std::vector<std::vector<RgbwColor>>& newFrame) {
+    std::vector<std::vector<RgbwColor>>* frameCopy = new std::vector<std::vector<RgbwColor>>(newFrame);
+
+    if (uxQueueSpacesAvailable(frameQueue) > 0) {
+        return xQueueSend(frameQueue, &frameCopy, 0) == pdTRUE;
+    } else {
+        delete frameCopy; // Drop frame hvis der ikke er plads
+        return false;
+    }
+}
+
 void LedController::changeChannel(int toChannel) {
   gpio_set_level(GPIO_NUM_4, (toChannel >> 0) & 1);
   gpio_set_level(GPIO_NUM_5, (toChannel >> 1) & 1);
   gpio_set_level(GPIO_NUM_8, (toChannel >> 2) & 1);
 }
 
+// void LedController::updateLedTask(void *param) {
+//     // if (imageHaveChange == false) {
+//     //     vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+//     // } else {
+//         isReading = true;
+//         refresh(); 
+//         isReading = false;   
+//         imageHaveChange = false;         
+//     // }
+// }
+
 void LedController::updateLedTask(void *param) {
-    if (imageHaveChange == false) {
-        vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+    LedController *controller = static_cast<LedController*>(param);
+    std::vector<std::vector<RgbwColor>>* frame = nullptr;
+    if (xQueueReceive(controller->frameQueue, &frame, 0) == pdTRUE && frame != nullptr) {
+        controller->isReading = true;
+        for (int r = 0; r < controller->matrixWidth; r++) {
+            controller->changeChannel(r);
+            for (int c = 0; c < controller->matrixHeight; c++) {
+                const RgbwColor& color = (*frame)[r][c];
+                led_strip_set_pixel_rgbw(led_strip, c, color.red, color.green, color.blue, color.white);
+            }
+            led_strip_refresh(led_strip);
+            vTaskDelay(controller->updateInterval / portTICK_PERIOD_MS);
+        }
+        delete frame;
+        controller->isReading = false;
     } else {
-        isReading = true;
-        refresh(); 
-        isReading = false;   
-        imageHaveChange = false;         
+        vTaskDelay(controller->updateInterval / portTICK_PERIOD_MS);
     }
 }
 

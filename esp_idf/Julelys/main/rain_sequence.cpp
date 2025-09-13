@@ -4,6 +4,7 @@
 #include "freertos/task.h"
 
 #include "esp_task_wdt.h"
+#include <esp_log.h>
 
 #include "led_controller.h"
 
@@ -38,37 +39,42 @@ RgbwColor colorWheel(int pos) {
     return color;
 }
 
-void setPixel(uint32_t row, uint32_t col, RgbwColor color) {
-    ledController->setPixel(row, col, color);
-}
-
 void rain_sequence_task(void *pvParameter) {
-    int width = ledController->matrixWidth;
-    int height = ledController->matrixHeight;
-    int updateInterval = 10;//ledController->updateInterval;
-    int iterations = 1;
+    const int width = ledController->matrixWidth;
+    const int height = ledController->matrixHeight;
+    const int updateInterval = 10; // ms
+    const int iterations = 1;
 
-    while (rain_stop == false) {
-        for(int i = 0; i < 255 * iterations; i++) {
-            for(int y = 0; y < width; y++) {
-                for(int x = 0; x < height; x++) {
+    std::vector<std::vector<RgbwColor>> frame(width, std::vector<RgbwColor>(height));
+
+    while (!rain_stop) {
+        for (int i = 0; i < 255 * iterations; i++) {
+            // Generér en ny frame
+            for (int y = 0; y < width; y++) {
+                for (int x = 0; x < height; x++) {
                     int index = ((x * 255 / height) + i) & 255;
-                    RgbwColor showColor = colorWheel( index );
-                    setPixel(y, x, showColor);
+                    frame[y][x] = colorWheel(index); // y = row, x = col
                 }
             }
 
-            ledController->imageHaveChange = true;
+            // Send frame til LED-controller (non-blocking hvis køen er fuld)
+            if (!ledController->pushFrame(frame)) {
+                ESP_LOGW("RainTask", "Frame buffer fuld – skipping frame");
+            }
+
+            // Vent til LEDController har brugt frame, eller sov lidt
             do {
                 vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-            } while(ledController->isReading);
+            } while (ledController->isReading);
         }
     }
 
-    vTaskDelete(NULL);
+    vTaskDelete(nullptr);
 }
 
 void stopRainTask() {
+    if (rain_stop == true) return;
+
     rain_stop = true;
 
     ledController->clean();

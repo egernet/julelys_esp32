@@ -6,6 +6,7 @@
 #include <esp_system.h>
 #include <esp_log.h>
 #include <esp_console.h>
+#include "esp_timer.h"
 
 #include <linenoise/linenoise.h>
 #include <argtable3/argtable3.h>
@@ -32,59 +33,107 @@
 
 #include "rain_sequence.h"
 
+#include <vector>
+
 #define PROMPT_STR "julelys"
 
 #define MOUNT_PATH "/data"
 #define HISTORY_PATH MOUNT_PATH "/history.txt"
 
 static const char TAG[] = "Julelys";
-const char *payload = "Julelys v2";
+const char *payload = "Julelys v3";
 
 LedController *ledController = nullptr;
 SettingsController *settingsController = nullptr;
 
+#define NUMBER_OF_LINES 8
+#define NUMBER_OF_LEDS_LINES 55
+
 #define RCV_HOST    SPI2_HOST
-#define SPI_BUFFER_LEN 4
-#define SPI_CS_PIN     0
-#define SPI_CLK_PIN    1
-#define SPI_MOSI_PIN   2
-#define SPI_MISO_PIN   3
+#define SPI_CS_PIN     10
+#define SPI_CLK_PIN    3
+#define SPI_MOSI_PIN   6
+#define SPI_MISO_PIN   2
+#define SPI_BUFFER_LEN (NUMBER_OF_LINES * NUMBER_OF_LEDS_LINES)
 
 spi_device_handle_t spi_dev;
 
+// Timer handle til inaktivitet
+esp_timer_handle_t inactivity_timer = nullptr;
+
+// Callback når der er gået 5 sek uden SPI-trafik
+void inactivity_timer_callback(void* arg) {
+    ESP_LOGW("SPI", "Ingen SPI-trafik i 5 sekunder – starter RainTask");
+    startupRainTask();
+}
+
+// Kaldes én gang for at oprette og starte timer
+void init_inactivity_timer() {
+    esp_timer_create_args_t timer_args = {
+        .callback = &inactivity_timer_callback,
+        .arg = nullptr,
+        .dispatch_method = ESP_TIMER_TASK,
+        .name = "inactivity_timer"
+    };
+
+    ESP_ERROR_CHECK(esp_timer_create(&timer_args, &inactivity_timer));
+    ESP_ERROR_CHECK(esp_timer_start_once(inactivity_timer, 5 * 1000000)); // 5 sek
+}
+
+// Kaldes ved hver SPI-trafik for at nulstille timeren
+void reset_inactivity_timer() {
+    if (inactivity_timer) {
+        esp_timer_stop(inactivity_timer);
+        esp_timer_start_once(inactivity_timer, 5 * 1000000); // 5 sek igen
+    }
+}
+
 void spi_slave_task(void* arg) {
-    const uint8_t expected_sequence[SPI_BUFFER_LEN] = {0x55, 0xAA, 0xFF, 0x00};
     uint8_t recv_buf[SPI_BUFFER_LEN];
-    uint8_t send_buf[SPI_BUFFER_LEN];
+
+    // Start timer første gang
+    init_inactivity_timer();
 
     while (true) {
         memset(recv_buf, 0, SPI_BUFFER_LEN);
-        memset(send_buf, 0, SPI_BUFFER_LEN);
-
-        // Forbered svar
-        memcpy(send_buf, expected_sequence, 4); // Svar med f.eks. ASCII "OKAY"
 
         spi_slave_transaction_t trans = {};
         trans.length = SPI_BUFFER_LEN * 8;
-        trans.tx_buffer = send_buf;
         trans.rx_buffer = recv_buf;
 
         // Blokerer indtil master sender
         ESP_ERROR_CHECK(spi_slave_transmit(RCV_HOST, &trans, portMAX_DELAY));
 
-        // Log modtagne data
-        ESP_LOGI(TAG, "Modtog: %02X %02X %02X %02X", recv_buf[0], recv_buf[1], recv_buf[2], recv_buf[3]);
+        // Der kom trafik – nulstil 5-sekunders timer
+        reset_inactivity_timer();
 
-        // Kontroller om sekvens matcher
-        if (memcmp(recv_buf, expected_sequence, SPI_BUFFER_LEN) == 0) {
-            ESP_LOGI(TAG, "Gyldig kommando modtaget. Svarede: %s", send_buf);
-        } else {
-            ESP_LOGW(TAG, "Ugyldig sekvens. Svarede alligevel.");
+        // Stop regn-effekt hvis den kører
+        stopRainTask();
+
+        // Byg frame
+        std::vector<std::vector<RgbwColor>> frame(NUMBER_OF_LINES, std::vector<RgbwColor>(NUMBER_OF_LEDS_LINES));
+
+        for (int row = 0; row < NUMBER_OF_LINES; ++row) {
+            for (int col = 0; col < NUMBER_OF_LEDS_LINES; ++col) {
+                int index = (row * NUMBER_OF_LEDS_LINES + col) * 4;
+
+                RgbwColor color = {
+                    .red   = recv_buf[index + 0],
+                    .green = recv_buf[index + 1],
+                    .blue  = recv_buf[index + 2],
+                    .white = recv_buf[index + 3],
+                };
+
+                frame[row][col] = color;
+            }
         }
+
+        // Send frame til LED-controller (ringbuffer eller direkte)
+        ledController->pushFrame(frame);
     }
 }
 
-static esp_err_t init_spi_master_async() {
+static esp_err_t init_spi_slave_async() {
     spi_bus_config_t buscfg = {
         .mosi_io_num = SPI_MOSI_PIN,
         .miso_io_num = SPI_MISO_PIN,
@@ -106,7 +155,7 @@ static esp_err_t init_spi_master_async() {
     ESP_ERROR_CHECK(spi_slave_initialize(RCV_HOST, &buscfg, &slvcfg, SPI_DMA_CH_AUTO));
     ESP_LOGI(TAG, "SPI-slave initialiseret");
 
-    xTaskCreate(spi_slave_task, "spi_slave_task", 4096, NULL, 5, NULL);
+    xTaskCreate(spi_slave_task, "spi_slave_task", 8192, NULL, 5, NULL);
     return ESP_OK;
 }
 
@@ -175,7 +224,7 @@ static void initialize_console(void) {
 
 void setup() {
     settingsController = new SettingsController();
-    ledController = new LedController(GPIO_NUM_7, 8, 55);
+    ledController = new LedController(GPIO_NUM_7, NUMBER_OF_LINES, NUMBER_OF_LEDS_LINES);
 }
 
 void startupTasks() {
@@ -194,7 +243,7 @@ extern "C" void app_main(void) {
     register_system();
 
     startupTasks();
-    init_spi_master_async();
+    init_spi_slave_async();
 
 #if CONFIG_LOG_COLORS
     const char* prompt = LOG_COLOR_I PROMPT_STR "> " LOG_RESET_COLOR;

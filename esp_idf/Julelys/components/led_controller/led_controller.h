@@ -1,4 +1,7 @@
 #include <stdio.h>
+#include <vector>
+#include "freertos/FreeRTOS.h"
+#include "freertos/queue.h"
 
 #ifndef LED_CONTROLLER_H
 #define LED_CONTROLLER_H
@@ -14,7 +17,8 @@ struct RgbwColor
 class LedController {
 private:
     int ledPin;
-    
+    QueueHandle_t frameQueue = nullptr;
+
     void configureLed(int pin, uint32_t leds);
     void changeChannel(int toChannel);
 
@@ -38,6 +42,8 @@ public:
     void startupLoopTask(); 
 
     void clean();   
+
+    bool pushFrame(const std::vector<std::vector<RgbwColor>>& newFrame);
 };
 
 #endif /* LED_CONTROLLER_H */
