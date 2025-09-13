@@ -117,17 +117,6 @@ void LedController::changeChannel(int toChannel) {
   gpio_set_level(GPIO_NUM_8, (toChannel >> 2) & 1);
 }
 
-// void LedController::updateLedTask(void *param) {
-//     // if (imageHaveChange == false) {
-//     //     vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-//     // } else {
-//         isReading = true;
-//         refresh(); 
-//         isReading = false;   
-//         imageHaveChange = false;         
-//     // }
-// }
-
 void LedController::updateLedTask(void *param) {
     LedController *controller = static_cast<LedController*>(param);
     std::vector<std::vector<RgbwColor>>* frame = nullptr;

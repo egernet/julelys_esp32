@@ -49,7 +49,7 @@ void rain_sequence_task(void *pvParameter) {
 
     while (!rain_stop) {
         for (int i = 0; i < 255 * iterations; i++) {
-            // Generér en ny frame
+            // Generate a new frame
             for (int y = 0; y < width; y++) {
                 for (int x = 0; x < height; x++) {
                     int index = ((x * 255 / height) + i) & 255;
@@ -57,12 +57,11 @@ void rain_sequence_task(void *pvParameter) {
                 }
             }
 
-            // Send frame til LED-controller (non-blocking hvis køen er fuld)
-            if (!ledController->pushFrame(frame)) {
-                ESP_LOGW("RainTask", "Frame buffer fuld – skipping frame");
+            while (!ledController->pushFrame(frame)) {
+                vTaskDelay(1); // wait 1 ms to try again
             }
 
-            // Vent til LEDController har brugt frame, eller sov lidt
+            // Wait until LEDController has used the frame, or sleep a bit
             do {
                 vTaskDelay(updateInterval / portTICK_PERIOD_MS);
             } while (ledController->isReading);
