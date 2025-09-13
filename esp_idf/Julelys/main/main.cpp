@@ -54,7 +54,9 @@ SettingsController *settingsController = nullptr;
 #define SPI_CLK_PIN    3
 #define SPI_MOSI_PIN   6
 #define SPI_MISO_PIN   2
-#define SPI_BUFFER_LEN (NUMBER_OF_LINES * NUMBER_OF_LEDS_LINES)
+
+// 8 x 55 = 440 LEDs → 440 * 4 bytes = 1760
+#define SPI_BUFFER_LEN (NUMBER_OF_LINES * NUMBER_OF_LEDS_LINES * 4)
 
 spi_device_handle_t spi_dev;
 
@@ -91,6 +93,9 @@ void reset_inactivity_timer() {
 void spi_slave_task(void* arg) {
     uint8_t recv_buf[SPI_BUFFER_LEN];
 
+    const int width = ledController->matrixWidth;
+    const int height = ledController->matrixHeight;
+
     // Start timer første gang
     init_inactivity_timer();
 
@@ -111,11 +116,11 @@ void spi_slave_task(void* arg) {
         stopRainTask();
 
         // Byg frame
-        std::vector<std::vector<RgbwColor>> frame(NUMBER_OF_LINES, std::vector<RgbwColor>(NUMBER_OF_LEDS_LINES));
+        std::vector<std::vector<RgbwColor>> frame(width, std::vector<RgbwColor>(height));
 
-        for (int row = 0; row < NUMBER_OF_LINES; ++row) {
-            for (int col = 0; col < NUMBER_OF_LEDS_LINES; ++col) {
-                int index = (row * NUMBER_OF_LEDS_LINES + col) * 4;
+        for (int row = 0; row < width; ++row) {
+            for (int col = 0; col < height; ++col) {
+                int index = (row * height + col) * 4;
 
                 RgbwColor color = {
                     .red   = recv_buf[index + 0],
