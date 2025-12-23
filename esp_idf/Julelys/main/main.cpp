@@ -130,7 +130,8 @@ void spi_slave_task(void* arg) {
             }
         }
 
-        ledController->imageHaveChange = true;
+        // Swap buffers atomically after complete frame is received
+        ledController->swapBuffers();
     }
 }
 

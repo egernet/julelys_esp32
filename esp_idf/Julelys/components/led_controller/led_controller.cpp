@@ -9,46 +9,42 @@
 #include "driver/gpio.h"
 
 #include <algorithm>
-#include <vector>
 
-const char TAG[] = "Jylelys.LED";
+const char TAG[] = "Julelys.LED";
 led_strip_handle_t led_strip;
 
-std::vector<std::vector<RgbwColor>> image;
-
 std::vector<std::vector<RgbwColor>> initializeMatrix(int rows, int cols) {
-    std::vector<std::vector<RgbwColor>> matrix(rows, std::vector<RgbwColor>(cols, RgbwColor(0)));
+    std::vector<std::vector<RgbwColor>> matrix(rows, std::vector<RgbwColor>(cols, RgbwColor(0, 0, 0, 0)));
     return matrix;
 }
 
 LedController::LedController(int pin, int width, int height) : ledPin(pin), matrixWidth(width), matrixHeight(height) {
+    bufferMutex = xSemaphoreCreateMutex();
     configureLed(pin, (uint32_t)matrixHeight);
 }
 
 void LedController::configureLed(int pin, uint32_t leds) {
     ESP_LOGI(TAG, "Configured addressable LED");
     ESP_LOGI(TAG, "For pin: %d, with width: %d and height: %d", pin, matrixWidth, matrixHeight);
-    
-    image = initializeMatrix(matrixWidth, matrixHeight);
+
+    frontBuffer = initializeMatrix(matrixWidth, matrixHeight);
+    backBuffer = initializeMatrix(matrixWidth, matrixHeight);
 
     /* LED strip initialization with the GPIO and pixels number*/
     led_strip_config_t strip_config = {
         .strip_gpio_num = pin,
-        .max_leds = leds, // at least one LED on board
+        .max_leds = leds,
         .led_pixel_format = LED_PIXEL_FORMAT_GRBW,
         .led_model = LED_MODEL_SK6812,
     };
 
     int resolution_hz = 10 * 1000 * 1000; // 10MHz
-    //int resolution_hz = 800 * 1000; // 800kHz
 
     led_strip_rmt_config_t rmt_config = {
         .resolution_hz = (uint32_t)resolution_hz
     };
 
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
-
-    // led_strip_clear(led_strip);
 
     double ledBits = (double)(32 * leds);
     updateInterval = (int)((ledBits / resolution_hz) * 20000);
@@ -62,11 +58,12 @@ void LedController::configureLed(int pin, uint32_t leds) {
     gpio_set_direction(GPIO_NUM_5, GPIO_MODE_OUTPUT);
     gpio_set_direction(GPIO_NUM_4, GPIO_MODE_OUTPUT);
 
+    // Initialize both buffers with red
     RgbwColor color(255, 0, 0, 0);
-
-    for(int row=0; row<matrixWidth; row++) {
-        for(int col=0; col<matrixHeight; col++) {
-            image[row][col] = color;
+    for (int row = 0; row < matrixWidth; row++) {
+        for (int col = 0; col < matrixHeight; col++) {
+            frontBuffer[row][col] = color;
+            backBuffer[row][col] = color;
         }
     }
 
@@ -79,37 +76,51 @@ void LedController::setPixel(uint32_t row, uint32_t col, uint32_t red, uint32_t 
 }
 
 void LedController::setPixel(uint32_t row, uint32_t col, RgbwColor color) {
-    image[row][col] = color;
+    // Write to back buffer (no mutex needed - only SPI task writes here)
+    backBuffer[row][col] = color;
+}
+
+void LedController::swapBuffers() {
+    xSemaphoreTake(bufferMutex, portMAX_DELAY);
+    std::swap(frontBuffer, backBuffer);
+    imageHaveChange = true;
+    xSemaphoreGive(bufferMutex);
 }
 
 void LedController::refresh() {
-    for(int r=0; r<matrixWidth; r++) {
+    xSemaphoreTake(bufferMutex, portMAX_DELAY);
+
+    for (int r = 0; r < matrixWidth; r++) {
         changeChannel(r);
 
-        for(int c=0; c<matrixHeight; c++) {
-            RgbwColor color = image[r][c];
+        for (int c = 0; c < matrixHeight; c++) {
+            RgbwColor color = frontBuffer[r][c];
             led_strip_set_pixel_rgbw(led_strip, c, color.red, color.green, color.blue, color.white);
         }
 
         led_strip_refresh(led_strip);
+
+        // Release mutex during LED timing delay to allow buffer swap
+        xSemaphoreGive(bufferMutex);
         vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-  }
+        xSemaphoreTake(bufferMutex, portMAX_DELAY);
+    }
+
+    xSemaphoreGive(bufferMutex);
 }
 
 void LedController::changeChannel(int toChannel) {
-  gpio_set_level(GPIO_NUM_4, (toChannel >> 0) & 1);
-  gpio_set_level(GPIO_NUM_5, (toChannel >> 1) & 1);
-  gpio_set_level(GPIO_NUM_8, (toChannel >> 2) & 1);
+    gpio_set_level(GPIO_NUM_4, (toChannel >> 0) & 1);
+    gpio_set_level(GPIO_NUM_5, (toChannel >> 1) & 1);
+    gpio_set_level(GPIO_NUM_8, (toChannel >> 2) & 1);
 }
 
 void LedController::updateLedTask(void *param) {
     if (imageHaveChange == false) {
-        vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+        vTaskDelay(1);  // Yield, men vent ikke længe
     } else {
-        isReading = true;
-        refresh(); 
-        isReading = false;   
-        imageHaveChange = false;         
+        refresh();
+        imageHaveChange = false;
     }
 }
 
@@ -118,9 +129,9 @@ void LedController::ledSequenceTask(void *pvParameter) {
 
     while (1) {
         ledController->updateLedTask(pvParameter);
-        vTaskDelay(33 / portTICK_PERIOD_MS);
+        vTaskDelay(1);  // Minimal yield i stedet for 33ms
     }
-    vTaskDelete( NULL );
+    vTaskDelete(NULL);
 }
 
 void LedController::startupLoopTask() {
@@ -130,11 +141,11 @@ void LedController::startupLoopTask() {
 void LedController::clean() {
     RgbwColor color(255, 0, 0, 0);
 
-    for(int row=0; row<matrixWidth; row++) {
-        for(int col=0; col<matrixHeight; col++) {
-            image[row][col] = color;
+    for (int row = 0; row < matrixWidth; row++) {
+        for (int col = 0; col < matrixHeight; col++) {
+            backBuffer[row][col] = color;
         }
     }
 
-    imageHaveChange = true;
+    swapBuffers();
 }

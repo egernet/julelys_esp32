@@ -58,10 +58,10 @@ void rain_sequence_task(void *pvParameter) {
                 }
             }
 
-            ledController->imageHaveChange = true;
-            do {
-                vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-            } while(ledController->isReading);
+            ledController->swapBuffers();
+            vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+
+            if (rain_stop) break;
         }
     }
 
