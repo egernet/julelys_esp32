@@ -4,7 +4,6 @@
 #include "freertos/task.h"
 
 #include "esp_task_wdt.h"
-#include <esp_log.h>
 
 #include "led_controller.h"
 
@@ -39,41 +38,37 @@ RgbwColor colorWheel(int pos) {
     return color;
 }
 
+void setPixel(uint32_t row, uint32_t col, RgbwColor color) {
+    ledController->setPixel(row, col, color);
+}
+
 void rain_sequence_task(void *pvParameter) {
-    const int width = ledController->matrixWidth;
-    const int height = ledController->matrixHeight;
-    const int updateInterval = 10; // ms
-    const int iterations = 1;
+    int width = ledController->matrixWidth;
+    int height = ledController->matrixHeight;
+    int updateInterval = 10;//ledController->updateInterval;
+    int iterations = 1;
 
-    std::vector<std::vector<RgbwColor>> frame(width, std::vector<RgbwColor>(height));
-
-    while (!rain_stop) {
-        for (int i = 0; i < 255 * iterations; i++) {
-            // Generate a new frame
-            for (int y = 0; y < width; y++) {
-                for (int x = 0; x < height; x++) {
+    while (rain_stop == false) {
+        for(int i = 0; i < 255 * iterations; i++) {
+            for(int y = 0; y < width; y++) {
+                for(int x = 0; x < height; x++) {
                     int index = ((x * 255 / height) + i) & 255;
-                    frame[y][x] = colorWheel(index); // y = row, x = col
+                    RgbwColor showColor = colorWheel( index );
+                    setPixel(y, x, showColor);
                 }
             }
 
-            while (!ledController->pushFrame(frame)) {
-                vTaskDelay(1); // wait 1 ms to try again
-            }
-
-            // Wait until LEDController has used the frame, or sleep a bit
+            ledController->imageHaveChange = true;
             do {
                 vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-            } while (ledController->isReading);
+            } while(ledController->isReading);
         }
     }
 
-    vTaskDelete(nullptr);
+    vTaskDelete(NULL);
 }
 
 void stopRainTask() {
-    if (rain_stop == true) return;
-
     rain_stop = true;
 
     ledController->clean();

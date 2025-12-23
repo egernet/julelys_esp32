@@ -115,9 +115,6 @@ void spi_slave_task(void* arg) {
         // Stop regn-effekt hvis den kører
         stopRainTask();
 
-        // Byg frame
-        std::vector<std::vector<RgbwColor>> frame(width, std::vector<RgbwColor>(height));
-
         for (int row = 0; row < width; ++row) {
             for (int col = 0; col < height; ++col) {
                 int index = (row * height + col) * 4;
@@ -129,12 +126,11 @@ void spi_slave_task(void* arg) {
                     .white = recv_buf[index + 3],
                 };
 
-                frame[row][col] = color;
+                ledController->setPixel(row, col, color);
             }
         }
 
-        // Send frame til LED-controller (ringbuffer eller direkte)
-        ledController->pushFrame(frame);
+        ledController->imageHaveChange = true;
     }
 }
 
