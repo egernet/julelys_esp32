@@ -1,15 +1,20 @@
 # Julelys ESP32
 
-Smart julelys-system med 440 addresserbare SK6812 RGBW LED'er i en 8x55 matrix.
+Smart Christmas light system with 440 addressable SK6812 RGBW LEDs in an 8x55 matrix.
+
+## Related Repositories
+
+- **PCB:** [julelys_pcb_v2](https://github.com/egernet/julelys_pcb_v2/tree/feature/v3)
+- **Manager:** [julelys_manager](https://github.com/egernet/julelys_manager)
 
 ## Hardware
 
-- **MCU:** ESP32-C3 med custom HAT PCB v2
-- **LED'er:** SK6812 RGBW strips (8 rækker × 55 LED'er)
+- **MCU:** ESP32-C3 with custom HAT PCB v2
+- **LEDs:** SK6812 RGBW strips (8 rows x 55 LEDs)
 
 ### GPIO Pinout
 
-| GPIO | Funktion |
+| GPIO | Function |
 |------|----------|
 | 7 | LED data output (RMT) |
 | 4, 5, 8 | LED row multiplexer (3-bit channel select) |
@@ -26,49 +31,72 @@ idf.py build
 idf.py flash monitor
 ```
 
-Kræver ESP-IDF v5.4.1+
+Requires ESP-IDF v5.4.1+
 
-## Projektstruktur
+## Project Structure
 
 ```
 esp_idf/Julelys/
 ├── main/
-│   ├── main.cpp           # Entry point, SPI slave, konsol
-│   └── rain_sequence.cpp  # Rainbow idle-animation
+│   ├── main.cpp           # Entry point, SPI slave, console
+│   └── rain_sequence.cpp  # Rainbow idle animation
 ├── components/
-│   ├── led_controller/    # LED matrix styring via RMT
-│   ├── settings_controller/ # NVS persistens (WiFi creds)
-│   ├── cmd_system/        # CLI kommandoer
+│   ├── led_controller/    # LED matrix control (double buffering)
+│   ├── settings_controller/ # NVS persistence (WiFi creds)
+│   ├── cmd_system/        # CLI commands
 │   └── foundation/        # String helpers
 └── managed_components/    # led_strip (espressif)
 ```
 
-## Arkitektur
+## Architecture
 
-### Dataflow
-1. SPI master sender LED frame (1760 bytes = 8×55×4 RGBW)
-2. `main.cpp` parser til 2D matrix
-3. `LedController` refresher via RMT med GPIO multiplexing
-4. Efter 5s inaktivitet → `rain_sequence` starter rainbow-animation
+### Double Buffering
+The LED controller uses double buffering to prevent tearing:
+
+```
+SPI Task                    LED Task
+    │                           │
+    ▼                           ▼
+┌─────────┐   swap()     ┌─────────┐
+│  Back   │◄────────────►│  Front  │
+│ Buffer  │              │ Buffer  │
+└─────────┘              └─────────┘
+```
+
+- **Back buffer:** SPI task writes new frames here
+- **Front buffer:** LED task reads from here for display
+- **Swap:** Atomic buffer swap with mutex protection
+
+### Data Flow
+1. SPI master (manager) sends LED frame (1760 bytes = 8x55x4 RGBW)
+2. Frame is written to back buffer via `setPixel()`
+3. `swapBuffers()` swaps front/back atomically with mutex
+4. LED task refreshes display via RMT with GPIO multiplexing
 
 ### FreeRTOS Tasks
-- **ledSequenceTask** - LED refresh loop (30ms interval)
-- **spi_slave_task** - Modtager frames fra master
+- **ledSequenceTask** - LED refresh loop (1ms yield)
+- **spi_slave_task** - Receives frames from manager
 - **rain_sequence_task** - Idle animation (10ms interval)
 
-## Kodekonventioner
+## Code Conventions
 
-- C++ klasser for hovedkomponenter (LedController, SettingsController)
-- C funktioner for system commands
+- C++ classes for main components (LedController, SettingsController)
+- C functions for system commands
 - ESP-IDF logging: `ESP_LOGI`, `ESP_LOGE`, etc.
-- FreeRTOS til task management
+- FreeRTOS for task management
 
-## Vigtige klasser
+## Key Classes
 
 ### LedController
 ```cpp
+// Write to back buffer
 ledController.setPixel(row, col, RgbwColor{r, g, b, w});
-ledController.refresh();  // Push til hardware
+
+// Swap buffers atomically (call after complete frame)
+ledController.swapBuffers();
+
+// Clear display (sets all to red)
+ledController.clean();
 ```
 
 ### SettingsController
