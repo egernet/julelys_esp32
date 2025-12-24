@@ -119,12 +119,12 @@ void spi_slave_task(void* arg) {
             for (int col = 0; col < height; ++col) {
                 int index = (row * height + col) * 4;
 
-                RgbwColor color = {
-                    .red   = recv_buf[index + 0],
-                    .green = recv_buf[index + 1],
-                    .blue  = recv_buf[index + 2],
-                    .white = recv_buf[index + 3],
-                };
+                RgbwColor color(
+                    recv_buf[index + 0],
+                    recv_buf[index + 1],
+                    recv_buf[index + 2],
+                    recv_buf[index + 3]
+                );
 
                 ledController->setPixel(row, col, color);
             }

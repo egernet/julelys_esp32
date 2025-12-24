@@ -70,8 +70,6 @@ void rain_sequence_task(void *pvParameter) {
 
 void stopRainTask() {
     rain_stop = true;
-
-    ledController->clean();
 }
 
 void startupRainTask() {
