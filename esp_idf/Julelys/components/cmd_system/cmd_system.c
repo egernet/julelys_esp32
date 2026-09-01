@@ -17,6 +17,7 @@
 #include "esp_chip_info.h"
 #include "esp_sleep.h"
 #include "esp_flash.h"
+#include "driver/gpio.h"
 #include "driver/rtc_io.h"
 #include "driver/uart.h"
 #include "argtable3/argtable3.h"
