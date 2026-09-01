@@ -20,6 +20,10 @@ extern "C" {
 // Register WiFi functions
 void register_wifi(void);
 
+/* Bring up esp_netif and the lwIP TCP/IP stack without joining an AP.
+ * Sockets cannot be created before this runs. */
+void wifi_stack_init(void);
+
 bool wifi_join_from_settings();
 
 char * get_ip();

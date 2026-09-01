@@ -248,6 +248,11 @@ static void wifi_startup_task(void *arg) {
 }
 
 void startupNetworkStream() {
+    /* The socket API asserts inside lwIP if the TCP/IP stack has not been
+     * brought up, so this has to happen before the stream task binds - and
+     * regardless of whether we have credentials to join with. */
+    wifi_stack_init();
+
     xTaskCreate(wifi_startup_task, "wifi_startup_task", 4096, NULL, 5, NULL);
     startupStreamTask();
 }
