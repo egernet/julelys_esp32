@@ -3,6 +3,7 @@
 #include <string.h>
 
 #include "esp_log.h"
+#include "esp_timer.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -61,6 +62,14 @@ static void stream_task(void *pvParameters) {
          * buffer, or -1 when no frame is in flight. */
         int32_t activeSeq = -1;
 
+        /* One bit per row received for activeSeq. The frame is shown only once
+         * every row has arrived. */
+        uint8_t rowMask = 0;
+        const uint8_t fullMask = (width >= 8) ? 0xFF : (uint8_t)((1u << width) - 1);
+
+        uint32_t shown = 0, stale = 0, partial = 0;
+        int64_t lastReport = esp_timer_get_time();
+
         while (true) {
             struct sockaddr_storage source_addr;
             socklen_t socklen = sizeof(source_addr);
@@ -89,13 +98,30 @@ static void stream_task(void *pvParameters) {
             reset_inactivity_timer();
             stopRainTask();
 
-            /* A new sequence number means the previous frame never got its
-             * end-of-frame packet. Show what we have rather than blending the
-             * two frames together in the back buffer. */
-            if (activeSeq >= 0 && seq != (uint16_t)activeSeq) {
-                ledController->swapBuffers();
+            /* UDP gives no ordering guarantee, so a delayed packet from an
+             * older frame can arrive after a newer frame has started. Compare
+             * sequence numbers as a signed difference - that sorts old from
+             * new and handles the wrap at 65535 in one step. */
+            int16_t age = (activeSeq < 0) ? 1 : (int16_t)(seq - (uint16_t)activeSeq);
+
+            if (age < 0) {
+                /* Older than what we are already building - it can only make
+                 * the picture worse, so drop it. */
+                stale++;
+                continue;
             }
-            activeSeq = seq;
+
+            if (age > 0) {
+                if (rowMask != 0) {
+                    /* A newer frame started before the previous one was whole.
+                     * At 30 FPS the missing rows are 33ms from being resent, so
+                     * discard the partial frame instead of showing a torn mix
+                     * of two. */
+                    partial++;
+                }
+                activeSeq = seq;
+                rowMask = 0;
+            }
 
             const uint8_t *pixels = rx_buffer + STREAM_HEADER_LEN;
             for (int col = 0; col < height; ++col) {
@@ -103,9 +129,21 @@ static void stream_task(void *pvParameters) {
                 ledController->setPixel(row, col, RgbwColor(p[0], p[1], p[2], p[3]));
             }
 
-            if (flags & STREAM_FLAG_END_OF_FRAME) {
+            rowMask |= (uint8_t)(1u << row);
+
+            if (rowMask == fullMask) {
                 ledController->swapBuffers();
-                activeSeq = -1;
+                rowMask = 0;
+                shown++;
+            }
+
+            int64_t now = esp_timer_get_time();
+            if (now - lastReport >= 5000000) {
+                ESP_LOGI(TAG, "%lu fps, dropped: %lu stale, %lu partial",
+                         (unsigned long)(shown / 5), (unsigned long)stale,
+                         (unsigned long)partial);
+                shown = stale = partial = 0;
+                lastReport = now;
             }
         }
 

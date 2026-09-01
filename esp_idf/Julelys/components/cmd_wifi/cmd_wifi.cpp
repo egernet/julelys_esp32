@@ -68,6 +68,11 @@ static void initialise_wifi(void) {
     ESP_ERROR_CHECK( esp_wifi_set_storage(WIFI_STORAGE_RAM) );
     ESP_ERROR_CHECK( esp_wifi_set_mode(WIFI_MODE_NULL) );
     ESP_ERROR_CHECK( esp_wifi_start() );
+
+    /* Power save parks the radio between beacons, which shows up as latency
+     * spikes of 100ms+ on incoming frames and lets WiFi interrupts collide
+     * with the RMT bit timing that drives the LEDs. */
+    ESP_ERROR_CHECK( esp_wifi_set_ps(WIFI_PS_NONE) );
     initialized = true;
 }
 
@@ -143,6 +148,10 @@ void register_wifi(void) {
     };
 
     ESP_ERROR_CHECK( esp_console_cmd_register(&join_cmd) );
+}
+
+void wifi_stack_init() {
+    initialise_wifi();
 }
 
 bool wifi_join_from_settings() {
