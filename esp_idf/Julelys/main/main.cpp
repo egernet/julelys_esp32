@@ -33,6 +33,9 @@
 
 #include "rain_sequence.h"
 
+#include "cmd_wifi.h"
+#include "stream_receiver.h"
+
 #include <vector>
 
 #define PROMPT_STR "julelys"
@@ -229,6 +232,26 @@ void setup() {
     ledController = new LedController(GPIO_NUM_7, NUMBER_OF_LINES, NUMBER_OF_LEDS_LINES);
 }
 
+
+/* Joining the AP blocks for up to 10 seconds, so do it off the main task and
+ * let the console come up meanwhile. The stream task is started regardless -
+ * it binds INADDR_ANY and simply sits idle until the link is up, so a later
+ * 'join' from the console starts working without a restart. */
+static void wifi_startup_task(void *arg) {
+    if (wifi_join_from_settings()) {
+        ESP_LOGI(TAG, "WiFi connected, IP %s", get_ip());
+    } else {
+        ESP_LOGW(TAG, "No WiFi connection - use 'join <ssid> <password>' to configure");
+    }
+
+    vTaskDelete(NULL);
+}
+
+void startupNetworkStream() {
+    xTaskCreate(wifi_startup_task, "wifi_startup_task", 4096, NULL, 5, NULL);
+    startupStreamTask();
+}
+
 void startupTasks() {
     ledController->startupLoopTask();
     startupRainTask();
@@ -243,9 +266,11 @@ extern "C" void app_main(void) {
 
     esp_console_register_help_command();
     register_system();
+    register_wifi();
 
     startupTasks();
     init_spi_slave_async();
+    startupNetworkStream();
 
 #if CONFIG_LOG_COLORS
     const char* prompt = LOG_COLOR_I PROMPT_STR "> " LOG_RESET_COLOR;
