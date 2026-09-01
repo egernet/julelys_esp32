@@ -46,26 +46,31 @@ void rain_sequence_task(void *pvParameter) {
     int width = ledController->matrixWidth;
     int height = ledController->matrixHeight;
     int updateInterval = 10;//ledController->updateInterval;
-    int iterations = 1;
 
-    while (rain_stop == false) {
-        for(int i = 0; i < 255 * iterations; i++) {
-            for(int y = 0; y < width; y++) {
-                for(int x = 0; x < height; x++) {
-                    int index = ((x * 255 / height) + i) & 255;
-                    RgbwColor showColor = colorWheel( index );
-                    setPixel(y, x, showColor);
-                }
-            }
+    int i = 0;
 
-            ledController->swapBuffers();
-            vTaskDelay(updateInterval / portTICK_PERIOD_MS);
-
-            if (rain_stop) break;
+    /* The task lives for the whole run and idles while stopped. Creating a
+     * fresh task on every idle timeout leaked 2KB of stack per cycle and
+     * eventually exhausted the heap. */
+    while (true) {
+        if (rain_stop) {
+            vTaskDelay(50 / portTICK_PERIOD_MS);
+            continue;
         }
-    }
 
-    vTaskDelete(NULL);
+        for(int y = 0; y < width; y++) {
+            for(int x = 0; x < height; x++) {
+                int index = ((x * 255 / height) + i) & 255;
+                RgbwColor showColor = colorWheel( index );
+                setPixel(y, x, showColor);
+            }
+        }
+
+        ledController->swapBuffers();
+        vTaskDelay(updateInterval / portTICK_PERIOD_MS);
+
+        i = (i + 1) & 255;
+    }
 }
 
 void stopRainTask() {
@@ -73,7 +78,11 @@ void stopRainTask() {
 }
 
 void startupRainTask() {
+    static TaskHandle_t handle = NULL;
+
     rain_stop = false;
-    
-    xTaskCreate(rain_sequence_task, "rain_sequence_task", 2048, NULL, 5, NULL);
+
+    if (handle == NULL) {
+        xTaskCreate(rain_sequence_task, "rain_sequence_task", 2048, NULL, 5, &handle);
+    }
 }

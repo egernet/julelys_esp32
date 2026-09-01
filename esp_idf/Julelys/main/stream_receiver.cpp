@@ -4,6 +4,7 @@
 
 #include "esp_log.h"
 #include "esp_timer.h"
+#include "esp_heap_caps.h"
 
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
@@ -139,9 +140,10 @@ static void stream_task(void *pvParameters) {
 
             int64_t now = esp_timer_get_time();
             if (now - lastReport >= 5000000) {
-                ESP_LOGI(TAG, "%lu fps, dropped: %lu stale, %lu partial",
+                ESP_LOGI(TAG, "%lu fps, dropped: %lu stale, %lu partial, heap %u",
                          (unsigned long)(shown / 5), (unsigned long)stale,
-                         (unsigned long)partial);
+                         (unsigned long)partial,
+                         (unsigned)heap_caps_get_free_size(MALLOC_CAP_DEFAULT));
                 shown = stale = partial = 0;
                 lastReport = now;
             }
