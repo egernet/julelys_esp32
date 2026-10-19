@@ -1,6 +1,7 @@
 # Julelys ESP32
 
-Smart Christmas light system with 440 addressable SK6812 RGBW LEDs in an 8x55 matrix.
+Smart Christmas light system with addressable LED strings in a matrix: 8x55 SK6812 RGBW
+by default, 4x100 WS2812B RGB for the 2026 season. See "LED configuration" below.
 
 ## Related Repositories
 
@@ -10,7 +11,7 @@ Smart Christmas light system with 440 addressable SK6812 RGBW LEDs in an 8x55 ma
 ## Hardware
 
 - **MCU:** ESP32-C3 with custom HAT PCB v2
-- **LEDs:** SK6812 RGBW strips (8 rows x 55 LEDs)
+- **LEDs:** SK6812 RGBW strips (8 rows x 55 LEDs), or WS2812B RGB fairy strings (4 x 100)
 
 ### GPIO Pinout
 
@@ -22,6 +23,27 @@ Smart Christmas light system with 440 addressable SK6812 RGBW LEDs in an 8x55 ma
 | 3 | SPI CLK |
 | 6 | SPI MOSI |
 | 2 | SPI MISO |
+
+## LED configuration
+
+Chip type and matrix size are Kconfig options in `idf.py menuconfig` under
+**Julelys LED** (`components/led_controller/Kconfig`). `sdkconfig` is gitignored,
+so set them again on every new checkout.
+
+| Option | Default | 2026 season |
+|------|------|------|
+| `CONFIG_JULELYS_LED_TYPE_*` | `SK6812` | `WS2812B` |
+| `CONFIG_JULELYS_LED_COLOR_ORDER_*` (WS2812B only) | `GRB` | `GRB` (not yet checked with `Test Color`) |
+| `CONFIG_JULELYS_NUMBER_OF_STRINGS` | 8 | 4 |
+| `CONFIG_JULELYS_LEDS_PER_STRING` | 55 | 100 |
+
+- Frames always arrive as RGBW. On WS2812B the white channel is added to R, G
+  and B (clamped at 255), so the manager and the sequences are unchanged.
+- The manager must use the same size: `--matrix-width 4 --matrix-height 100`.
+  A mismatch shows as `Ignoring N byte packet, expected M` in the log.
+- With fewer than 8 strings, only mux channels 0 and up are refreshed, so the
+  strings go in the first JST outputs (J4 = CH1, J5, J6, J7).
+- If red and green are swapped on a WS2812B string, switch the color order to RGB.
 
 ## Build & Flash
 
@@ -68,7 +90,7 @@ SPI Task                    LED Task
 - **Swap:** Atomic buffer swap with mutex protection
 
 ### Data Flow
-1. SPI master (manager) sends LED frame (1760 bytes = 8x55x4 RGBW)
+1. Manager sends a frame over SPI (strings x LEDs x 4 bytes RGBW, 1760 for 8x55) or UDP stream
 2. Frame is written to back buffer via `setPixel()`
 3. `swapBuffers()` swaps front/back atomically with mutex
 4. LED task refreshes display via RMT with GPIO multiplexing
@@ -107,6 +129,6 @@ settings.setWIFIPassword("secret");
 
 ## SPI Frame Format
 
-- 1760 bytes per frame
+- strings x LEDs x 4 bytes per frame (1760 for the default 8x55)
 - Byte order: R, G, B, W per pixel
-- Layout: row 0 col 0-54, row 1 col 0-54, ... row 7 col 0-54
+- Layout: row 0 col 0..N-1, row 1 col 0..N-1, ... one row per string
