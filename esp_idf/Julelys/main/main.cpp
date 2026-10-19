@@ -50,7 +50,7 @@ const char *payload = "Julelys v3";
 LedController *ledController = nullptr;
 SettingsController *settingsController = nullptr;
 
-#define NUMBER_OF_LINES 8
+#define NUMBER_OF_LINES CONFIG_JULELYS_NUMBER_OF_STRINGS
 #define NUMBER_OF_LEDS_LINES CONFIG_JULELYS_LEDS_PER_STRING
 
 #define RCV_HOST    SPI2_HOST

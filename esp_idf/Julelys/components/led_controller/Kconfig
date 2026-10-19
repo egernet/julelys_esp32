@@ -1,5 +1,14 @@
 menu "Julelys LED"
 
+    config JULELYS_NUMBER_OF_STRINGS
+        int "Number of strings"
+        range 1 8
+        default 8
+        help
+            Number of LED strings, driven on mux channels 0 and up (the first
+            JST outputs). Fewer strings means a shorter refresh per frame.
+            The manager must be started with the same --matrix-width.
+
     config JULELYS_LEDS_PER_STRING
         int "LEDs per string"
         range 1 360
