@@ -10,6 +10,18 @@
 
 #include <algorithm>
 
+#include "sdkconfig.h"
+
+#if CONFIG_JULELYS_LED_TYPE_WS2812B
+static const led_model_t LED_MODEL = LED_MODEL_WS2812;
+static const led_pixel_format_t LED_PIXEL_FORMAT = LED_PIXEL_FORMAT_GRB;
+static const int LED_BITS_PER_PIXEL = 24;
+#else
+static const led_model_t LED_MODEL = LED_MODEL_SK6812;
+static const led_pixel_format_t LED_PIXEL_FORMAT = LED_PIXEL_FORMAT_GRBW;
+static const int LED_BITS_PER_PIXEL = 32;
+#endif
+
 const char TAG[] = "Julelys.LED";
 led_strip_handle_t led_strip;
 
@@ -26,6 +38,7 @@ LedController::LedController(int pin, int width, int height) : ledPin(pin), matr
 void LedController::configureLed(int pin, uint32_t leds) {
     ESP_LOGI(TAG, "Configured addressable LED");
     ESP_LOGI(TAG, "For pin: %d, with width: %d and height: %d", pin, matrixWidth, matrixHeight);
+    ESP_LOGI(TAG, "LED type: %s", LED_BITS_PER_PIXEL == 32 ? "SK6812 RGBW" : "WS2812B RGB");
 
     frontBuffer = initializeMatrix(matrixWidth, matrixHeight);
     backBuffer = initializeMatrix(matrixWidth, matrixHeight);
@@ -34,8 +47,8 @@ void LedController::configureLed(int pin, uint32_t leds) {
     led_strip_config_t strip_config = {
         .strip_gpio_num = pin,
         .max_leds = leds,
-        .led_pixel_format = LED_PIXEL_FORMAT_GRBW,
-        .led_model = LED_MODEL_SK6812,
+        .led_pixel_format = LED_PIXEL_FORMAT,
+        .led_model = LED_MODEL,
     };
 
     int resolution_hz = 10 * 1000 * 1000; // 10MHz
@@ -46,7 +59,7 @@ void LedController::configureLed(int pin, uint32_t leds) {
 
     ESP_ERROR_CHECK(led_strip_new_rmt_device(&strip_config, &rmt_config, &led_strip));
 
-    double ledBits = (double)(32 * leds);
+    double ledBits = (double)(LED_BITS_PER_PIXEL * leds);
     updateInterval = (int)((ledBits / resolution_hz) * 20000);
 
     ESP_LOGI(TAG, "Sleep time: %d", updateInterval);
@@ -95,7 +108,19 @@ void LedController::refresh() {
 
         for (int c = 0; c < matrixHeight; c++) {
             RgbwColor color = frontBuffer[r][c];
+#if CONFIG_JULELYS_LED_TYPE_WS2812B
+            // No white diode, so mix white into the color channels
+            uint32_t red = std::min<uint32_t>(color.red + color.white, 255);
+            uint32_t green = std::min<uint32_t>(color.green + color.white, 255);
+            uint32_t blue = std::min<uint32_t>(color.blue + color.white, 255);
+#if CONFIG_JULELYS_LED_COLOR_ORDER_RGB
+            // The driver sends GRB, so swap red and green for RGB strings
+            std::swap(red, green);
+#endif
+            led_strip_set_pixel(led_strip, c, red, green, blue);
+#else
             led_strip_set_pixel_rgbw(led_strip, c, color.red, color.green, color.blue, color.white);
+#endif
         }
 
         led_strip_refresh(led_strip);

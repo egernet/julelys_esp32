@@ -1,0 +1,32 @@
+menu "Julelys LED"
+
+    choice JULELYS_LED_TYPE
+        prompt "LED chip type"
+        default JULELYS_LED_TYPE_SK6812
+        help
+            The LED chip on the strings. Frames always arrive as RGBW; on RGB
+            chips the white channel is folded into red, green and blue.
+
+        config JULELYS_LED_TYPE_SK6812
+            bool "SK6812 RGBW"
+
+        config JULELYS_LED_TYPE_WS2812B
+            bool "WS2812B RGB"
+    endchoice
+
+    choice JULELYS_LED_COLOR_ORDER
+        prompt "WS2812B color order"
+        depends on JULELYS_LED_TYPE_WS2812B
+        default JULELYS_LED_COLOR_ORDER_GRB
+        help
+            WS2812B is normally GRB, but some fairy light strings are RGB.
+            If red and green are swapped, pick the other one.
+
+        config JULELYS_LED_COLOR_ORDER_GRB
+            bool "GRB"
+
+        config JULELYS_LED_COLOR_ORDER_RGB
+            bool "RGB"
+    endchoice
+
+endmenu
