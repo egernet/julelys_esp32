@@ -1,5 +1,14 @@
 menu "Julelys LED"
 
+    config JULELYS_LEDS_PER_STRING
+        int "LEDs per string"
+        range 1 360
+        default 55
+        help
+            Number of LEDs on each of the 8 strings. The manager must be
+            started with the same --matrix-height. Each stream packet is
+            4 + 4 * this many bytes, and 360 keeps it inside the MTU.
+
     choice JULELYS_LED_TYPE
         prompt "LED chip type"
         default JULELYS_LED_TYPE_SK6812

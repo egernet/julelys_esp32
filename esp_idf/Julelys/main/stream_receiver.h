@@ -12,9 +12,9 @@
  *   0       2     frame_seq  (big endian, wraps at 65535)
  *   2       1     row        (0 .. NUMBER_OF_LINES-1)
  *   3       1     flags      (bit0 = last row of this frame)
- *   4       220   RGBW       (NUMBER_OF_LEDS_LINES * 4 bytes)
+ *   4       N*4   RGBW       (NUMBER_OF_LEDS_LINES * 4 bytes)
  *
- * A full 8x55 frame is 8 packets of 224 bytes, which keeps every packet
+ * A full 8x55 frame is 8 packets of 224 bytes (8x100 is 404 bytes), which keeps every packet
  * inside the 1500 byte MTU. Losing one packet costs a single row for a
  * single frame instead of the whole image.
  */

@@ -4,6 +4,7 @@
 #include <string.h>
 
 #include <esp_system.h>
+#include "sdkconfig.h"
 #include <esp_log.h>
 #include <esp_console.h>
 #include "esp_timer.h"
@@ -50,7 +51,7 @@ LedController *ledController = nullptr;
 SettingsController *settingsController = nullptr;
 
 #define NUMBER_OF_LINES 8
-#define NUMBER_OF_LEDS_LINES 55
+#define NUMBER_OF_LEDS_LINES CONFIG_JULELYS_LEDS_PER_STRING
 
 #define RCV_HOST    SPI2_HOST
 #define SPI_CS_PIN     10
@@ -58,7 +59,7 @@ SettingsController *settingsController = nullptr;
 #define SPI_MOSI_PIN   6
 #define SPI_MISO_PIN   2
 
-// 8 x 55 = 440 LEDs → 440 * 4 bytes = 1760
+// 8 x 55 = 440 LEDs → 440 * 4 bytes = 1760 with the default string length
 #define SPI_BUFFER_LEN (NUMBER_OF_LINES * NUMBER_OF_LEDS_LINES * 4)
 
 spi_device_handle_t spi_dev;
