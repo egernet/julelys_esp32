@@ -21,6 +21,10 @@
 #define STREAM_HEADER_LEN 4
 #define STREAM_FLAG_END_OF_FRAME 0x01
 
+/* A packet more than this many frames behind the one being assembled is not
+ * late, it is from a restarted sender. About 2 seconds at 30 FPS. */
+#define STREAM_RESYNC_FRAMES 64
+
 void startupStreamTask();
 
 #endif /* STREAM_RECEIVER_H */

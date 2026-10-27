@@ -105,6 +105,15 @@ static void stream_task(void *pvParameters) {
              * new and handles the wrap at 65535 in one step. */
             int16_t age = (activeSeq < 0) ? 1 : (int16_t)(seq - (uint16_t)activeSeq);
 
+            if (age < -STREAM_RESYNC_FRAMES) {
+                /* Far too old to be a late packet. The manager restarted and
+                 * its sequence began again at 0, so follow the new stream
+                 * instead of dropping it until the counter catches up. */
+                ESP_LOGI(TAG, "Sequence jumped back from %ld to %u, resyncing",
+                         (long)activeSeq, (unsigned)seq);
+                age = 1;
+            }
+
             if (age < 0) {
                 /* Older than what we are already building - it can only make
                  * the picture worse, so drop it. */
